@@ -1,0 +1,103 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - dev/v1
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install development dependencies
+        run: python -m pip install --disable-pip-version-check -e ".[dev]" lizard==1.23.0
+
+      - name: Run tests
+        run: python -m pytest -q
+
+      - name: Run Ruff
+        run: ruff check src tests
+
+      - name: Build package
+        run: python -m build
+
+  self-test:
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Run passing strict fixture
+        id: passing
+        uses: ./
+        with:
+          path: tests/fixtures/action-pass
+          level: strict
+          require-improvement: "false"
+
+      - name: Verify passing outputs
+        env:
+          RESULT: ${{ steps.passing.outputs.result }}
+          DUPLICATION: ${{ steps.passing.outputs.duplication-percent }}
+          COMPLEXITY_DEBT: ${{ steps.passing.outputs.complexity-debt }}
+          REPORT_PATH: ${{ steps.passing.outputs.report-path }}
+        run: |
+          test "$RESULT" = "pass"
+          test "$DUPLICATION" = "0.0"
+          test "$COMPLEXITY_DEBT" = "0"
+          test -f "$REPORT_PATH"
+
+      - name: Run expected strict failure
+        id: failing
+        continue-on-error: true
+        uses: ./
+        with:
+          path: tests/fixtures/action-fail
+          level: strict
+          require-improvement: "false"
+
+      - name: Verify failure and repair context
+        env:
+          OUTCOME: ${{ steps.failing.outcome }}
+          RESULT: ${{ steps.failing.outputs.result }}
+          FIX_CONTEXT: ${{ steps.failing.outputs.fix-context-path }}
+        run: |
+          test "$OUTCOME" = "failure"
+          test "$RESULT" = "fail"
+          test -f "$FIX_CONTEXT"
+          python - "$FIX_CONTEXT" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          context = json.loads(Path(sys.argv[1]).read_text())
+          assert context["repair_batch"]
+          assert context["repair_batch"][0]["path"] == "complex.py"
+          PY

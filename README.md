@@ -1,59 +1,36 @@
 # AI Code Quality
 
-AI Code Quality is a planned multi-language GitHub Action for checking the quality of an entire repository with one configurable quality profile.
+Repository-wide duplication and cyclomatic-complexity quality gates for multi-language projects.
 
-> [!NOTE]
-> The action is currently being designed. This README records the decisions confirmed so far and does not claim that the action is implemented yet.
-
-## Intended usage
-
-The action is intended to be usable as:
+## Quick start
 
 ```yaml
-- uses: exohayvan/ai-code-quality@v1
-  with:
-    level: standard
-    require-improvement: "2"
+name: AI code quality
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: Exohayvan/ai-code-quality@v1
+        with:
+          level: standard
+          require-improvement: "false"
 ```
 
-Checks apply to the entire repository rather than only changed files. Repositories containing multiple supported languages will be analyzed as multi-language repositories.
+The action scans the complete repository, not only changed files. It supports repositories containing multiple languages by combining [jscpd](https://github.com/kucherenko/jscpd) duplication detection with [Lizard](https://github.com/terryyin/lizard) per-function cyclomatic complexity analysis.
+
+`v1` pins jscpd `5.0.14` and Lizard `1.23.0` for reproducible measurements.
 
 ## Quality levels
-
-The supported levels will be:
-
-```text
-none
-minimal
-basic
-standard
-strict
-hardened
-maximum
-```
-
-Levels are cumulative. Higher levels retain checks from lower levels, tighten their limits where appropriate, and may activate additional checks.
-
-| Level | Purpose | Runtime intent |
-| --- | --- | --- |
-| `none` | Disable quality checks | Essentially instant |
-| `minimal` | Apply forgiving limits | Seconds |
-| `basic` | Catch obvious quality problems | Fast |
-| `standard` | Provide practical production expectations | Normal pull-request check |
-| `strict` | Apply harsh limits using fast checks | Still appropriate for every pull request |
-| `hardened` | Add deeper and substantially more expensive analysis | A large runtime increase is acceptable |
-| `maximum` | Run the strongest available analysis | Runtime is a secondary concern |
-
-`strict` is intentionally harsh without being slow. Runtime-heavy checks belong in `hardened`, while `maximum` may eventually include checks such as exhaustive mutation testing.
-
-## Confirmed initial checks
-
-The first version will focus on two checks:
-
-- Duplication detection with [jscpd](https://github.com/kucherenko/jscpd)
-- Cyclomatic complexity analysis with [Lizard](https://github.com/terryyin/lizard)
-
-### Thresholds
 
 | Level | Maximum duplicated lines | Maximum function CCN |
 | --- | ---: | ---: |
@@ -65,71 +42,219 @@ The first version will focus on two checks:
 | `hardened` | 0% | 8 |
 | `maximum` | 0% | 5 |
 
-Limits are inclusive. For example, `standard` permits exactly 10% duplicated lines and a function with a cyclomatic complexity number of 15, but it rejects values above those limits.
+Limits are inclusive. A function exactly at the selected CCN limit passes. A duplication percentage exactly at a nonzero limit also passes. At a 0% duplication limit, any detected duplicated lines fail even if jscpd rounds the displayed percentage to `0.00%`.
 
-### Duplication measurement
+The profiles are monotonic: stronger profiles never loosen or disable checks from weaker profiles. In v1, `hardened` and `maximum` tighten complexity further. Additional expensive checks may be added to those profiles in later major-compatible v1 releases, but mutation testing is not part of the initial v1 release.
 
-jscpd will use the same detection sensitivity for every active level so results remain comparable:
+## Inputs
 
-- Minimum duplicate size: 5 lines
-- Minimum duplicate size: 50 tokens
-- Comments are ignored
-- `.gitignore` is respected
-- The entire repository is scanned
-- Common dependency, generated-output, build-output, and coverage directories are excluded by default
+| Input | Default | Description |
+| --- | --- | --- |
+| `level` | `standard` | One of `none`, `minimal`, `basic`, `standard`, `strict`, `hardened`, or `maximum`. |
+| `require-improvement` | `false` | Absolute, report-only, maintenance, or percentage-improvement enforcement. |
+| `path` | `.` | Repository or subdirectory to analyze. |
+| `baseline-ref` | empty | Explicit Git ref for baseline comparisons. |
+| `repair-limit` | `15` | Maximum findings placed in the bounded AI repair batch. |
+| `annotation-limit` | `40` | Maximum source annotations written to GitHub. |
 
-The selected level changes the permitted duplicated-line percentage, not the sensitivity of clone detection.
-
-### Complexity measurement
-
-The initial Lizard integration will enforce cyclomatic complexity per function. Function length, parameter count, file length, token count, and average file complexity are not part of the initial complexity check.
-
-For improvement comparisons, complexity debt is measured as the sum of the amount by which each function exceeds the selected level's CCN limit:
-
-```text
-complexity debt = sum(max(0, function CCN - profile CCN limit))
-```
-
-## Improvement requirement
-
-The `require-improvement` setting controls how check results are enforced:
+### `require-improvement`
 
 | Value | Behavior |
 | --- | --- |
-| `false` | Do not use a baseline. The current repository must immediately satisfy the selected level's absolute limits. |
-| `-1` | Report results without failing for quality findings. Tool or infrastructure failures may still fail the action. |
-| `0` | Quality must not regress from the comparison baseline. |
-| Positive number | Quality debt must improve by at least that percentage from the comparison baseline. |
+| `"false"` | Enforce the selected profile's absolute limits immediately. No baseline is used. |
+| `"-1"` | Report quality findings without failing the action. Scanner or configuration errors still fail. |
+| `"0"` | Permit existing debt but require both measured dimensions not to regress. |
+| Positive number | Require both measured dimensions to improve by at least that percentage. |
 
-For example:
+Improvement is evaluated independently for:
 
-```yaml
-require-improvement: "2"
+- Duplicated-line percentage
+- Complexity debt
+
+Complexity debt is:
+
+```text
+sum(max(0, function CCN - selected profile CCN limit))
 ```
 
-requires at least a 2% improvement. Duplication is compared using duplicated-line percentage, while complexity is compared using complexity debt.
+For an improvement percentage `p`, the allowed current duplication is `baseline duplication * (1 - p/100)`. Allowed complexity debt uses the same calculation rounded down to a whole number. A clean baseline remains clean.
 
-The exact source-selection rules for the comparison baseline have not been finalized yet.
+Example requiring a 2% improvement against the pull-request merge base:
 
-## Design principles
+```yaml
+- uses: actions/checkout@v4
+  with:
+    fetch-depth: 0
 
-- Analyze the complete repository.
-- Support repositories containing multiple languages.
-- Keep checks deterministic and reproducible.
-- Keep quality levels cumulative.
-- Separate strictness from runtime cost.
-- Keep `strict` harsh enough for demanding repositories while remaining practical on every pull request.
-- Reserve expensive analysis for `hardened` and exhaustive analysis for `maximum`.
-- Clearly report which checks ran, were skipped, or were not applicable.
+- uses: Exohayvan/ai-code-quality@v1
+  with:
+    level: strict
+    require-improvement: "2"
+```
 
-## Not decided yet
+### Baseline selection
 
-The following details remain open and should not be treated as part of the contract yet:
+When `require-improvement` is `0` or a positive number, the action resolves the baseline as follows:
 
-- The default level and `require-improvement` value
-- Exact baseline selection for pull requests, pushes, and manual runs
-- The action's implementation and packaging architecture
-- Final default exclusion patterns
-- Report, annotation, JSON, and SARIF formats
-- Additional checks beyond jscpd and Lizard
-- Language-specific mutation-testing behavior
+1. `baseline-ref`, when provided
+2. The merge base between `HEAD` and the pull request's base commit
+3. The `before` commit from a push event
+
+Manual runs and initial branch pushes without a usable previous commit must provide `baseline-ref`. Baseline comparisons require the commit to be present locally, so use `actions/checkout` with `fetch-depth: 0`.
+
+## Outputs
+
+Give the action step an `id` to consume outputs:
+
+```yaml
+- uses: Exohayvan/ai-code-quality@v1
+  id: quality
+  with:
+    level: strict
+    require-improvement: "false"
+
+- if: always()
+  run: |
+    echo "Result: ${{ steps.quality.outputs.result }}"
+    echo "Duplication: ${{ steps.quality.outputs.duplication-percent }}%"
+    echo "Maximum CCN: ${{ steps.quality.outputs.maximum-ccn }}"
+```
+
+| Output | Description |
+| --- | --- |
+| `result` | `pass` or `fail`. |
+| `duplication-percent` | Current duplicated-line percentage. |
+| `maximum-ccn` | Highest per-function CCN observed. |
+| `complexity-debt` | Total complexity debt for the selected profile. |
+| `report-path` | Absolute path to the complete JSON report. |
+| `fix-context-path` | Absolute path to the bounded AI repair context. |
+| `baseline-sha` | Resolved baseline commit when comparison mode is active. |
+
+## Reports for humans and coding agents
+
+The action deliberately avoids dumping every scanner result into the job log.
+
+### GitHub job summary
+
+The bounded summary contains:
+
+- Overall result, profile, and enforcement mode
+- Current and allowed duplication
+- Current and allowed complexity debt
+- Constraints that already pass and should not regress
+- Near-limit passing functions
+- The highest-priority repair batch
+- Paths to complete machine-readable reports
+
+### Source annotations
+
+Failing functions are annotated with the function name, line range, observed CCN, and allowed CCN. Duplicate clone fragments are annotated with their source ranges and stable family identifier. The number of annotations is bounded by `annotation-limit`.
+
+### `.ai-code-quality/fix-context.json`
+
+This compact file is intended for coding agents. It contains:
+
+- A bounded, prioritized `repair_batch`
+- Exact paths and line ranges
+- Stable finding identifiers
+- Metrics and allowed limits
+- Passing constraints to preserve
+- Near-limit passing functions
+- A count of findings omitted from the current batch
+
+Duplicate pairs connected through a shared fragment are grouped into one clone family so a repeated block is presented as one repair problem instead of many pair combinations.
+
+### `.ai-code-quality/report.json`
+
+The complete report contains every function measurement, every duplicate family, check statuses, thresholds, baseline measurements, and enforcement metadata. It is not dumped into the normal log.
+
+Reports remain in the workspace and can be uploaded as artifacts:
+
+```yaml
+- uses: Exohayvan/ai-code-quality@v1
+  id: quality
+  with:
+    level: strict
+
+- name: Upload complete quality reports
+  if: always()
+  uses: actions/upload-artifact@v4
+  with:
+    name: ai-code-quality
+    path: |
+      ${{ steps.quality.outputs.report-path }}
+      ${{ steps.quality.outputs.fix-context-path }}
+```
+
+## Scanner behavior
+
+### Duplication
+
+jscpd uses fixed detection sensitivity across every active profile:
+
+- Minimum clone size: 5 lines
+- Minimum clone size: 50 tokens
+- Comments ignored
+- `.gitignore` respected
+- Whole target directory scanned
+- Symbol case preserved
+- Symlinks not followed
+
+The selected profile changes the allowed result, not what counts as a clone.
+
+### Complexity
+
+Lizard analyzes supported source languages and v1 enforces only cyclomatic complexity per function. Function length, parameter count, file length, token count, and average file complexity are not treated as complexity failures.
+
+### Default exclusions
+
+The following directory names are excluded at any depth:
+
+```text
+.git
+.venv
+.ai-code-quality
+node_modules
+vendor
+dist
+build
+coverage
+target
+bin
+obj
+.generated
+```
+
+## Runner requirements
+
+The composite action requires:
+
+- Python 3.11 or newer
+- Node.js with `npx`
+- Git when baseline comparison is enabled
+- Network access for the pinned tool installation unless the runner already caches the packages
+
+GitHub-hosted Ubuntu runners satisfy these requirements. The action installs its Python package and pinned Lizard release, while npx executes the pinned jscpd release.
+
+## Local development
+
+```bash
+python -m venv .venv
+.venv/bin/python -m pip install -e ".[dev]" lizard==1.23.0
+PYTHONPATH=src .venv/bin/python -m pytest -q
+PYTHONPATH=src .venv/bin/ruff check src tests
+PYTHONPATH=src .venv/bin/python -m build
+```
+
+Run the CLI directly with:
+
+```bash
+PYTHONPATH=src .venv/bin/python -m ai_code_quality \
+  --path . \
+  --level standard \
+  --require-improvement false
+```
+
+## License
+
+[MIT](LICENSE)
