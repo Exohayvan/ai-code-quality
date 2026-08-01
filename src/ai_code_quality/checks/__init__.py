@@ -1,0 +1,1 @@
+"""Pinned scanner adapters."""

@@ -1,0 +1,118 @@
+name: AI Code Quality
+description: Repository-wide duplication and cyclomatic-complexity quality gates
+author: ExoHayvan
+
+branding:
+  icon: check-circle
+  color: purple
+
+inputs:
+  level:
+    description: Quality profile to apply
+    required: false
+    default: standard
+  require-improvement:
+    description: Use false, -1, 0, or a required improvement percentage
+    required: false
+    default: "false"
+  path:
+    description: Repository path to analyze
+    required: false
+    default: .
+  baseline-ref:
+    description: Explicit Git ref for baseline comparisons
+    required: false
+    default: ""
+  repair-limit:
+    description: Maximum findings placed in the bounded AI repair batch
+    required: false
+    default: "15"
+  annotation-limit:
+    description: Maximum GitHub source annotations
+    required: false
+    default: "40"
+
+outputs:
+  result:
+    description: pass or fail
+    value: ${{ steps.quality.outputs.result }}
+  duplication-percent:
+    description: Current duplicated-line percentage
+    value: ${{ steps.quality.outputs.duplication-percent }}
+  maximum-ccn:
+    description: Highest function cyclomatic complexity observed
+    value: ${{ steps.quality.outputs.maximum-ccn }}
+  complexity-debt:
+    description: Total complexity above the selected profile limit
+    value: ${{ steps.quality.outputs.complexity-debt }}
+  report-path:
+    description: Absolute path to the complete JSON report
+    value: ${{ steps.quality.outputs.report-path }}
+  fix-context-path:
+    description: Absolute path to the bounded AI repair context
+    value: ${{ steps.quality.outputs.fix-context-path }}
+  baseline-sha:
+    description: Resolved comparison baseline commit, when used
+    value: ${{ steps.quality.outputs.baseline-sha }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install pinned quality tools
+      shell: bash
+      run: |
+        set -euo pipefail
+        if command -v python3 >/dev/null 2>&1; then
+          quality_python="$(command -v python3)"
+        elif command -v python >/dev/null 2>&1; then
+          quality_python="$(command -v python)"
+        else
+          echo "Python 3.11 or newer is required" >&2
+          exit 2
+        fi
+        quality_environment="$RUNNER_TEMP/ai-code-quality-v1"
+        rm -rf "$quality_environment"
+        "$quality_python" -m venv "$quality_environment"
+        if [[ -x "$quality_environment/bin/python" ]]; then
+          quality_python="$quality_environment/bin/python"
+        elif [[ -x "$quality_environment/Scripts/python.exe" ]]; then
+          quality_python="$quality_environment/Scripts/python.exe"
+        else
+          echo "Unable to locate the isolated Python interpreter" >&2
+          exit 2
+        fi
+        "$quality_python" -m pip install \
+          --disable-pip-version-check \
+          --no-input \
+          "lizard==1.23.0"
+        "$quality_python" -m pip install \
+          --disable-pip-version-check \
+          --no-input \
+          --force-reinstall \
+          --no-deps \
+          "$GITHUB_ACTION_PATH"
+        printf 'AI_CODE_QUALITY_PYTHON=%s\n' "$quality_python" >> "$GITHUB_ENV"
+
+    - name: Run repository quality gates
+      id: quality
+      shell: bash
+      env:
+        INPUT_LEVEL: ${{ inputs.level }}
+        INPUT_REQUIRE_IMPROVEMENT: ${{ inputs.require-improvement }}
+        INPUT_PATH: ${{ inputs.path }}
+        INPUT_BASELINE_REF: ${{ inputs.baseline-ref }}
+        INPUT_REPAIR_LIMIT: ${{ inputs.repair-limit }}
+        INPUT_ANNOTATION_LIMIT: ${{ inputs.annotation-limit }}
+      run: |
+        set -euo pipefail
+        arguments=(
+          --path "$INPUT_PATH"
+          --level "$INPUT_LEVEL"
+          --require-improvement "$INPUT_REQUIRE_IMPROVEMENT"
+          --repair-limit "$INPUT_REPAIR_LIMIT"
+          --annotation-limit "$INPUT_ANNOTATION_LIMIT"
+        )
+        if [[ -n "$INPUT_BASELINE_REF" ]]; then
+          arguments+=(--baseline-ref "$INPUT_BASELINE_REF")
+        fi
+        "$AI_CODE_QUALITY_PYTHON" -m ai_code_quality "${arguments[@]}"
