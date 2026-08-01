@@ -125,6 +125,21 @@ def test_parse_typos_jsonl_normalizes_corrections() -> None:
     assert findings[0].suggestions == ("the",)
 
 
+def test_parse_typos_jsonl_converts_utf8_byte_offsets_to_character_columns(
+    tmp_path,
+) -> None:
+    (tmp_path / "README.md").write_text("café teh\n")
+
+    findings = parse_typos_jsonl(
+        '{"type":"typo","path":"./README.md","line_num":1,'
+        '"byte_offset":6,"typo":"teh","corrections":["the"]}',
+        repository=tmp_path,
+    )
+
+    assert findings[0].column == 6
+    assert findings[0].end_column == 8
+
+
 def test_parse_typos_jsonl_normalizes_filename_typos_without_line_numbers() -> None:
     findings = parse_typos_jsonl(
         '{"type":"typo","path":"./teh-file.txt",'
