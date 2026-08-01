@@ -20,10 +20,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-
       - uses: Exohayvan/ai-code-quality@v1
 ```
 
@@ -255,11 +251,10 @@ obj
 The composite action requires:
 
 - Python 3.11 or newer
-- Node.js 22 or newer with npm
 - Git when baseline comparison is enabled
 - Network access for pinned package and binary installation unless the runner already caches them
 
-GitHub-hosted Ubuntu, macOS, and Windows x64 runners satisfy these requirements. The pinned typos installer also supports Linux ARM64 and macOS ARM64. Downloads are size-bounded and SHA-256 verified before extraction.
+The action provisions its own Node.js 22 runtime and npm through `actions/setup-node@v7`. GitHub-hosted Ubuntu, macOS, and Windows x64 runners satisfy the remaining requirements. The pinned typos installer also supports Linux ARM64 and macOS ARM64. Downloads are size-bounded and SHA-256 verified before extraction.
 
 ## Local development
 
