@@ -20,6 +20,8 @@ def test_parse_lizard_csv_extracts_function_coordinates(tmp_path: Path) -> None:
     assert result[0].path == "src/parser.py"
     assert result[0].symbol == "parse"
     assert result[0].ccn == 7
+    assert result[0].length == 14
+    assert result[0].parameter_count == 2
     assert result[0].start_line == 3
     assert result[0].end_line == 16
 

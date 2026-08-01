@@ -5,6 +5,7 @@ import re
 import shutil
 import subprocess
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Final
 
@@ -24,6 +25,13 @@ DEFAULT_EXCLUDED_DIRECTORIES: Final[tuple[str, ...]] = (
 )
 
 _DRIVE_PATH = re.compile(r"^[A-Za-z]:")
+
+
+@dataclass(frozen=True, slots=True)
+class CommandOutput:
+    stdout: str
+    stderr: str
+    returncode: int
 
 
 def normalize_scanner_path(raw: str) -> str:
@@ -48,7 +56,13 @@ def resolve_command(name: str) -> str:
     raise RuntimeError(f"Required command {name!r} was not found on PATH")
 
 
-def run_command(command: Sequence[str], *, cwd: Path, timeout: int = 600) -> str:
+def run_command_capture(
+    command: Sequence[str],
+    *,
+    cwd: Path,
+    timeout: int = 600,
+    accepted_exit_codes: frozenset[int] = frozenset({0}),
+) -> CommandOutput:
     try:
         completed = subprocess.run(
             list(command),
@@ -62,9 +76,13 @@ def run_command(command: Sequence[str], *, cwd: Path, timeout: int = 600) -> str
         raise RuntimeError(f"Scanner timed out after {timeout} seconds") from exc
     except OSError as exc:
         raise RuntimeError(f"Unable to start scanner: {exc}") from exc
-    if completed.returncode != 0:
+    if completed.returncode not in accepted_exit_codes:
         detail = (completed.stderr or completed.stdout).strip()[-2000:]
         raise RuntimeError(
             f"Scanner exited with code {completed.returncode}: {detail or 'no diagnostic output'}"
         )
-    return completed.stdout
+    return CommandOutput(completed.stdout, completed.stderr, completed.returncode)
+
+
+def run_command(command: Sequence[str], *, cwd: Path, timeout: int = 600) -> str:
+    return run_command_capture(command, cwd=cwd, timeout=timeout).stdout

@@ -13,9 +13,13 @@ from ai_code_quality.baseline import (
 )
 from ai_code_quality.checks.jscpd import run_jscpd
 from ai_code_quality.checks.lizard import run_lizard
+from ai_code_quality.checks.markdownlint import run_markdownlint
+from ai_code_quality.checks.semgrep import run_semgrep
+from ai_code_quality.checks.typos import run_typos
+from ai_code_quality.checks.yamllint import run_yamllint
 from ai_code_quality.evaluator import EnforcementKind, evaluate, parse_enforcement
 from ai_code_quality.models import DuplicationResult, ScanResult
-from ai_code_quality.profiles import get_profile
+from ai_code_quality.profiles import Profile, get_profile
 from ai_code_quality.reporting import (
     build_reports,
     render_annotations,
@@ -24,13 +28,40 @@ from ai_code_quality.reporting import (
 )
 
 
-def scan_repository(repository: Path) -> ScanResult:
-    with ThreadPoolExecutor(max_workers=2, thread_name_prefix="quality-check") as executor:
+def scan_repository(repository: Path, profile: Profile) -> ScanResult:
+    with ThreadPoolExecutor(max_workers=6, thread_name_prefix="quality-check") as executor:
         duplication_future = executor.submit(run_jscpd, repository)
         complexity_future = executor.submit(run_lizard, repository)
+        semgrep_future = (
+            executor.submit(run_semgrep, repository, profile.semgrep_policy)
+            if profile.semgrep_policy is not None
+            else None
+        )
+        yamllint_future = (
+            executor.submit(run_yamllint, repository, profile.yamllint_policy)
+            if profile.yamllint_policy is not None
+            else None
+        )
+        markdownlint_future = (
+            executor.submit(run_markdownlint, repository, profile.markdownlint_policy)
+            if profile.markdownlint_policy is not None
+            else None
+        )
+        typos_future = executor.submit(run_typos, repository) if profile.typos_enabled else None
         duplication = duplication_future.result()
         functions = complexity_future.result()
-    return ScanResult(duplication=duplication, functions=functions)
+        semgrep = semgrep_future.result() if semgrep_future is not None else ()
+        yamllint = yamllint_future.result() if yamllint_future is not None else ()
+        markdownlint = markdownlint_future.result() if markdownlint_future is not None else ()
+        typos = typos_future.result() if typos_future is not None else ()
+    return ScanResult(
+        duplication=duplication,
+        functions=functions,
+        semgrep=semgrep,
+        yamllint=yamllint,
+        markdownlint=markdownlint,
+        typos=typos,
+    )
 
 
 def _empty_scan() -> ScanResult:
@@ -103,7 +134,7 @@ def run(arguments: list[str] | None = None) -> int:
     baseline_scan: ScanResult | None = None
 
     if profile.enabled:
-        current_scan = scan_repository(repository)
+        current_scan = scan_repository(repository, profile)
         if enforcement.kind is EnforcementKind.IMPROVEMENT:
             git_root, relative_target = repository_root_and_relative(repository)
             baseline_sha = resolve_baseline(
@@ -113,10 +144,8 @@ def run(arguments: list[str] | None = None) -> int:
             with baseline_worktree(git_root, baseline_sha) as worktree:
                 baseline_target = worktree / relative_target
                 if not baseline_target.is_dir():
-                    raise ValueError(
-                        "The analyzed path does not exist at the comparison baseline"
-                    )
-                baseline_scan = scan_repository(baseline_target)
+                    raise ValueError("The analyzed path does not exist at the comparison baseline")
+                baseline_scan = scan_repository(baseline_target, profile)
     else:
         current_scan = _empty_scan()
 
@@ -152,6 +181,12 @@ def run(arguments: list[str] | None = None) -> int:
             "duplication-percent": current_scan.duplication.percentage,
             "maximum-ccn": maximum_ccn,
             "complexity-debt": evaluation.complexity.debt,
+            "function-length-debt": evaluation.function_length.debt,
+            "argument-debt": evaluation.arguments.debt,
+            "semgrep-findings": evaluation.semgrep.count,
+            "yamllint-findings": evaluation.yamllint.count,
+            "markdownlint-findings": evaluation.markdownlint.count,
+            "typo-findings": evaluation.typos.count,
             "report-path": paths.full_report,
             "fix-context-path": paths.fix_context,
             "baseline-sha": baseline_sha,

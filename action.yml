@@ -1,5 +1,5 @@
 name: AI Code Quality
-description: Repository-wide duplication and cyclomatic-complexity quality gates
+description: Profiled repository-wide complexity, duplication, security, lint, and typo gates
 author: ExoHayvan
 
 branding:
@@ -45,6 +45,24 @@ outputs:
   complexity-debt:
     description: Total complexity above the selected profile limit
     value: ${{ steps.quality.outputs.complexity-debt }}
+  function-length-debt:
+    description: Total function length above the selected profile limit
+    value: ${{ steps.quality.outputs.function-length-debt }}
+  argument-debt:
+    description: Total function arguments above the selected profile limit
+    value: ${{ steps.quality.outputs.argument-debt }}
+  semgrep-findings:
+    description: Current ratcheted Semgrep finding count
+    value: ${{ steps.quality.outputs.semgrep-findings }}
+  yamllint-findings:
+    description: Current yamllint finding count
+    value: ${{ steps.quality.outputs.yamllint-findings }}
+  markdownlint-findings:
+    description: Current markdownlint finding count
+    value: ${{ steps.quality.outputs.markdownlint-findings }}
+  typo-findings:
+    description: Current typo finding count
+    value: ${{ steps.quality.outputs.typo-findings }}
   report-path:
     description: Absolute path to the complete JSON report
     value: ${{ steps.quality.outputs.report-path }}
@@ -70,8 +88,15 @@ runs:
           echo "Python 3.11 or newer is required" >&2
           exit 2
         fi
-        quality_environment="$RUNNER_TEMP/ai-code-quality-v1"
+        quality_python="$(
+          "$quality_python" -c 'import sys; print(getattr(sys, "_base_executable", sys.executable))'
+        )"
+        quality_environment="$RUNNER_TEMP/ai-code-quality-v1-python"
+        quality_node_environment="$RUNNER_TEMP/ai-code-quality-v1-node"
+        quality_binary_directory="$RUNNER_TEMP/ai-code-quality-v1-bin"
         rm -rf "$quality_environment"
+        rm -rf "$quality_node_environment"
+        rm -rf "$quality_binary_directory"
         "$quality_python" -m venv "$quality_environment"
         if [[ -x "$quality_environment/bin/python" ]]; then
           quality_python="$quality_environment/bin/python"
@@ -84,14 +109,37 @@ runs:
         "$quality_python" -m pip install \
           --disable-pip-version-check \
           --no-input \
-          "lizard==1.23.0"
+          "lizard==1.23.0" \
+          "semgrep==1.172.0" \
+          "yamllint==1.38.0"
         "$quality_python" -m pip install \
           --disable-pip-version-check \
           --no-input \
           --force-reinstall \
           --no-deps \
           "$GITHUB_ACTION_PATH"
+        if ! command -v npm >/dev/null 2>&1; then
+          echo "Node.js and npm are required for markdownlint" >&2
+          exit 2
+        fi
+        node_major="$(node -p 'process.versions.node.split(".")[0]')"
+        if [[ ! "$node_major" =~ ^[0-9]+$ ]] || (( node_major < 22 )); then
+          echo "Node.js 22 or newer is required for markdownlint-cli 0.49.1" >&2
+          exit 2
+        fi
+        npm install \
+          --prefix "$quality_node_environment" \
+          --ignore-scripts \
+          --no-audit \
+          --no-fund \
+          --no-save \
+          "markdownlint-cli@0.49.1"
+        "$quality_python" -m ai_code_quality.install_typos "$quality_binary_directory"
         printf 'AI_CODE_QUALITY_PYTHON=%s\n' "$quality_python" >> "$GITHUB_ENV"
+        printf '%s\n' \
+          "$(dirname "$quality_python")" \
+          "$quality_node_environment/node_modules/.bin" \
+          "$quality_binary_directory" >> "$GITHUB_PATH"
 
     - name: Run repository quality gates
       id: quality

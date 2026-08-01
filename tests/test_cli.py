@@ -6,6 +6,10 @@ import subprocess
 import sys
 from pathlib import Path
 
+import ai_code_quality.cli as cli
+from ai_code_quality.models import DuplicationResult
+from ai_code_quality.profiles import get_profile
+
 
 def run_cli(repository: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
     environment = os.environ.copy()
@@ -29,6 +33,25 @@ def git(repository: Path, *arguments: str) -> str:
         capture_output=True,
         text=True,
     ).stdout.strip()
+
+
+def test_scan_repository_only_runs_tools_enabled_by_profile(tmp_path: Path, monkeypatch) -> None:
+    calls: list[str] = []
+    monkeypatch.setattr(cli, "run_jscpd", lambda path: DuplicationResult(0.0, 0, 0, ()))
+    monkeypatch.setattr(cli, "run_lizard", lambda path: ())
+    monkeypatch.setattr(cli, "run_typos", lambda path: calls.append("typos") or ())
+    monkeypatch.setattr(cli, "run_semgrep", lambda path, policy: calls.append("semgrep") or ())
+    monkeypatch.setattr(cli, "run_yamllint", lambda path, policy: calls.append("yamllint") or ())
+    monkeypatch.setattr(
+        cli, "run_markdownlint", lambda path, policy: calls.append("markdownlint") or ()
+    )
+
+    result = cli.scan_repository(tmp_path, get_profile("minimal"))
+
+    assert calls == ["typos"]
+    assert result.semgrep == ()
+    assert result.yamllint == ()
+    assert result.markdownlint == ()
 
 
 def test_none_profile_runs_without_scanner_tools(tmp_path: Path) -> None:
