@@ -42,10 +42,10 @@ def test_action_metadata_exposes_confirmed_public_interface() -> None:
     assert any(step.get("id") == "quality" for step in metadata["runs"]["steps"])
 
 
-def test_package_version_matches_v1_2_release() -> None:
+def test_package_version_matches_v1_2_1_release() -> None:
     metadata = tomllib.loads((ROOT / "pyproject.toml").read_text())
 
-    assert metadata["project"]["version"] == "1.2.0"
+    assert metadata["project"]["version"] == "1.2.1"
 
 
 def test_action_outputs_forward_quality_step_outputs() -> None:

@@ -19,7 +19,32 @@ def _nonnegative_int(value: Any, label: str) -> int:
     return value
 
 
-def parse_typos_jsonl(payload: str) -> tuple[ToolFinding, ...]:
+def _source_column(
+    repository: Path | None,
+    path: str,
+    line: int,
+    byte_offset: int,
+    typo: str,
+) -> int:
+    if repository is None:
+        return byte_offset + 1
+    source_path = Path(path)
+    if not source_path.is_absolute():
+        source_path = repository / normalize_scanner_path(path)
+    try:
+        source_line = source_path.read_bytes().splitlines()[line - 1]
+        prefix = source_line[:byte_offset].decode("utf-8")
+        suffix = source_line[byte_offset:].decode("utf-8")
+    except (IndexError, OSError, UnicodeDecodeError):
+        return 1
+    if not suffix.startswith(typo):
+        return 1
+    return len(prefix) + 1
+
+
+def parse_typos_jsonl(
+    payload: str, *, repository: Path | None = None
+) -> tuple[ToolFinding, ...]:
     findings: list[ToolFinding] = []
     for raw_line in payload.splitlines():
         if not raw_line.strip():
@@ -58,7 +83,11 @@ def parse_typos_jsonl(payload: str) -> tuple[ToolFinding, ...]:
         byte_offset = _nonnegative_int(item.get("byte_offset"), "byte offset")
         if line < 1:
             raise ValueError("Invalid typos line")
-        column = byte_offset + 1
+        column = (
+            byte_offset + 1
+            if path_context
+            else _source_column(repository, path, line, byte_offset, typo)
+        )
         findings.append(
             ToolFinding(
                 tool="typos",
@@ -95,4 +124,4 @@ def run_typos(repository: Path) -> tuple[ToolFinding, ...]:
         cwd=repository,
         accepted_exit_codes=frozenset({0, 2}),
     )
-    return parse_typos_jsonl(output.stdout)
+    return parse_typos_jsonl(output.stdout, repository=repository)
