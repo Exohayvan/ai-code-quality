@@ -42,10 +42,10 @@ def test_action_metadata_exposes_confirmed_public_interface() -> None:
     assert any(step.get("id") == "quality" for step in metadata["runs"]["steps"])
 
 
-def test_package_version_matches_v1_2_1_release() -> None:
+def test_package_version_matches_v1_2_2_release() -> None:
     metadata = tomllib.loads((ROOT / "pyproject.toml").read_text())
 
-    assert metadata["project"]["version"] == "1.2.1"
+    assert metadata["project"]["version"] == "1.2.2"
 
 
 def test_action_outputs_forward_quality_step_outputs() -> None:
@@ -57,7 +57,12 @@ def test_action_outputs_forward_quality_step_outputs() -> None:
 
 def test_action_installs_tools_in_an_isolated_virtual_environment() -> None:
     metadata = yaml.safe_load((ROOT / "action.yml").read_text())
-    install_script = metadata["runs"]["steps"][0]["run"]
+    install_step = next(
+        step
+        for step in metadata["runs"]["steps"]
+        if step.get("name") == "Install pinned quality tools"
+    )
+    install_script = install_step["run"]
 
     assert "-m venv" in install_script
     assert "_base_executable" in install_script
@@ -73,3 +78,18 @@ def test_action_installs_tools_in_an_isolated_virtual_environment() -> None:
     assert "process.versions.node" in install_script
     assert "Node.js 22 or newer is required" in install_script
     assert "GITHUB_PATH" in install_script
+
+
+def test_action_provisions_its_own_node_22_runtime() -> None:
+    metadata = yaml.safe_load((ROOT / "action.yml").read_text())
+    steps = metadata["runs"]["steps"]
+    setup_step = next(step for step in steps if step.get("name") == "Set up Node.js")
+    install_index = next(
+        index
+        for index, step in enumerate(steps)
+        if step.get("name") == "Install pinned quality tools"
+    )
+
+    assert setup_step["uses"] == "actions/setup-node@v7"
+    assert setup_step["with"]["node-version"] == "22"
+    assert steps.index(setup_step) < install_index
