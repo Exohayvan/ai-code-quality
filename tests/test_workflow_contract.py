@@ -21,7 +21,8 @@ def test_ci_exercises_unit_package_and_composite_action_paths() -> None:
     assert "python -m build" in validate_steps
 
     self_test_steps = jobs["self-test"]["steps"]
-    assert any(step.get("uses") == "./" for step in self_test_steps)
+    local_action_steps = [step for step in self_test_steps if step.get("uses") == "./"]
+    assert [step.get("id") for step in local_action_steps] == ["passing", "failing"]
     assert any(step.get("continue-on-error") == "true" for step in self_test_steps)
 
     passing_step = next(step for step in self_test_steps if step.get("id") == "passing")

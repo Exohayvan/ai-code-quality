@@ -3,13 +3,24 @@ from __future__ import annotations
 import pytest
 
 from ai_code_quality.evaluator import Enforcement, evaluate, parse_enforcement
-from ai_code_quality.models import ComplexityFunction, DuplicationResult, ScanResult
+from ai_code_quality.models import ComplexityFunction, DuplicationResult, ScanResult, ToolFinding
 from ai_code_quality.profiles import get_profile
 
 
 def scan(
-    *, duplication: float, ccns: tuple[int, ...], duplicated_lines: int | None = None
+    *,
+    duplication: float,
+    ccns: tuple[int, ...],
+    duplicated_lines: int | None = None,
+    lengths: tuple[int, ...] | None = None,
+    parameters: tuple[int, ...] | None = None,
+    semgrep: tuple[ToolFinding, ...] = (),
+    yamllint: tuple[ToolFinding, ...] = (),
+    markdownlint: tuple[ToolFinding, ...] = (),
+    typos: tuple[ToolFinding, ...] = (),
 ) -> ScanResult:
+    lengths = lengths or (0,) * len(ccns)
+    parameters = parameters or (0,) * len(ccns)
     functions = tuple(
         ComplexityFunction(
             path=f"src/function_{index}.py",
@@ -17,19 +28,37 @@ def scan(
             end_line=index * 10 + 5,
             symbol=f"function_{index}",
             ccn=ccn,
+            length=lengths[index],
+            parameter_count=parameters[index],
         )
         for index, ccn in enumerate(ccns)
     )
     return ScanResult(
         duplication=DuplicationResult(
             percentage=duplication,
-            duplicated_lines=(
-                round(duplication) if duplicated_lines is None else duplicated_lines
-            ),
+            duplicated_lines=(round(duplication) if duplicated_lines is None else duplicated_lines),
             total_lines=100,
             clones=(),
         ),
         functions=functions,
+        semgrep=semgrep,
+        yamllint=yamllint,
+        markdownlint=markdownlint,
+        typos=typos,
+    )
+
+
+def finding(tool: str, *, severity: str = "warning", line: int = 1) -> ToolFinding:
+    return ToolFinding(
+        tool=tool,
+        rule=f"{tool}-rule",
+        path=f"{tool}.txt",
+        line=line,
+        column=1,
+        end_line=line,
+        end_column=2,
+        message=f"{tool} finding",
+        severity=severity,
     )
 
 
@@ -77,6 +106,77 @@ def test_absolute_limits_are_inclusive() -> None:
     )
 
     assert evaluation.passed is True
+
+
+def test_lizard_length_and_argument_debts_are_independent() -> None:
+    evaluation = evaluate(
+        current=scan(
+            duplication=0.0,
+            ccns=(15, 15),
+            lengths=(100, 101),
+            parameters=(8, 7),
+        ),
+        profile=get_profile("standard"),
+        enforcement=Enforcement.absolute(),
+    )
+
+    assert evaluation.function_length.debt == 1
+    assert evaluation.function_length.allowed_debt == 0
+    assert evaluation.function_length.passed is False
+    assert evaluation.arguments.debt == 1
+    assert evaluation.arguments.allowed_debt == 0
+    assert evaluation.arguments.passed is False
+
+
+def test_external_findings_ratchet_independently_and_semgrep_errors_block() -> None:
+    baseline = scan(
+        duplication=0.0,
+        ccns=(1,),
+        semgrep=(finding("semgrep"), finding("semgrep", line=2)),
+        yamllint=(finding("yamllint"), finding("yamllint", line=2)),
+        markdownlint=(finding("markdownlint"), finding("markdownlint", line=2)),
+    )
+    current = scan(
+        duplication=0.0,
+        ccns=(1,),
+        semgrep=(finding("semgrep"), finding("semgrep", severity="error", line=2)),
+        yamllint=(finding("yamllint"),),
+        markdownlint=(finding("markdownlint"), finding("markdownlint", line=2)),
+    )
+
+    evaluation = evaluate(
+        current=current,
+        baseline=baseline,
+        profile=get_profile("standard"),
+        enforcement=Enforcement.improvement(2.0),
+    )
+
+    assert evaluation.semgrep.count == 1
+    assert evaluation.semgrep.immediate_count == 1
+    assert evaluation.semgrep.allowed_count == 1
+    assert evaluation.semgrep.passed is False
+    assert evaluation.yamllint.count == 1
+    assert evaluation.yamllint.allowed_count == 1
+    assert evaluation.yamllint.passed is True
+    assert evaluation.markdownlint.count == 2
+    assert evaluation.markdownlint.allowed_count == 1
+    assert evaluation.markdownlint.passed is False
+    assert evaluation.typos.count == 0
+    assert evaluation.typos.allowed_count == 0
+    assert evaluation.typos.passed is True
+
+
+def test_disabled_external_tools_are_skipped() -> None:
+    evaluation = evaluate(
+        current=scan(duplication=0.0, ccns=(1,)),
+        profile=get_profile("minimal"),
+        enforcement=Enforcement.absolute(),
+    )
+
+    assert evaluation.semgrep.skipped is True
+    assert evaluation.yamllint.skipped is True
+    assert evaluation.markdownlint.skipped is True
+    assert evaluation.typos.skipped is False
 
 
 def test_zero_duplication_limit_rejects_rounded_zero_with_duplicate_lines() -> None:
@@ -141,6 +241,8 @@ def test_positive_improvement_keeps_clean_metrics_clean() -> None:
     assert evaluation.passed is False
     assert evaluation.duplication.allowed == 0.0
     assert evaluation.complexity.allowed_debt == 0
+    assert evaluation.function_length.allowed_debt == 0
+    assert evaluation.arguments.allowed_debt == 0
 
 
 def test_improvement_mode_requires_a_baseline() -> None:

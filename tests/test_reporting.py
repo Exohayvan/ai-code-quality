@@ -10,6 +10,7 @@ from ai_code_quality.models import (
     DuplicationClone,
     DuplicationResult,
     ScanResult,
+    ToolFinding,
 )
 from ai_code_quality.profiles import get_profile
 from ai_code_quality.reporting import (
@@ -133,7 +134,7 @@ def test_write_reports_produces_full_and_bounded_json(tmp_path: Path) -> None:
 
     assert paths.full_report == tmp_path / "report.json"
     assert paths.fix_context == tmp_path / "fix-context.json"
-    assert json.loads(paths.full_report.read_text())["schema_version"] == 1
+    assert json.loads(paths.full_report.read_text())["schema_version"] == 2
     assert json.loads(paths.fix_context.read_text())["verdict"] == "pass"
     assert "AI Code Quality: REPORT ONLY" in render_summary(reports)
 
@@ -190,10 +191,124 @@ def test_summary_formats_percentages_compactly() -> None:
     assert "1.23456789%" not in summary
 
 
-def test_fix_context_bounds_fragments_inside_one_clone_family() -> None:
-    fragments = tuple(
-        CloneFragment(f"src/copy_{index}.py", 1, 6) for index in range(51)
+def test_reports_expose_function_length_and_argument_debts() -> None:
+    scan = ScanResult(
+        duplication=DuplicationResult(0.0, 0, 80, ()),
+        functions=(
+            ComplexityFunction(
+                "src/large.py",
+                1,
+                80,
+                "large",
+                10,
+                length=76,
+                parameter_count=7,
+            ),
+        ),
     )
+    profile = get_profile("strict")
+    enforcement = Enforcement.absolute()
+    reports = build_reports(
+        scan=scan,
+        profile=profile,
+        enforcement=enforcement,
+        evaluation=evaluate(current=scan, profile=profile, enforcement=enforcement),
+    )
+
+    assert reports.full["checks"]["function_length"]["debt"] == 1
+    assert reports.full["checks"]["function_length"]["maximum"] == 75
+    assert reports.full["checks"]["arguments"]["debt"] == 1
+    assert reports.full["checks"]["arguments"]["maximum"] == 6
+    assert reports.full["tools"]["semgrep"]["version"] == "1.172.0"
+    assert reports.full["tools"]["yamllint"]["version"] == "1.38.0"
+    assert reports.full["tools"]["markdownlint"]["version"] == "0.49.1"
+    assert reports.full["tools"]["typos"]["version"] == "1.48.0"
+    assert reports.full["checks"]["complexity"]["functions"][0]["length"] == 76
+    assert reports.full["checks"]["complexity"]["functions"][0]["parameter_count"] == 7
+
+
+def test_reports_expose_external_findings_in_every_surface() -> None:
+    def external(tool: str, severity: str = "warning") -> ToolFinding:
+        return ToolFinding(
+            tool=tool,
+            rule=f"{tool}-rule",
+            path=f"src/{tool}.txt",
+            line=3,
+            column=2,
+            end_line=3,
+            end_column=5,
+            message=f"Fix {tool}",
+            severity=severity,
+            suggestions=("replacement",) if tool == "typos" else (),
+        )
+
+    scan = ScanResult(
+        duplication=DuplicationResult(0.0, 0, 80, ()),
+        functions=(),
+        semgrep=(external("semgrep", "error"),),
+        yamllint=(external("yamllint"),),
+        markdownlint=(external("markdownlint"),),
+        typos=(external("typos"),),
+    )
+    profile = get_profile("standard")
+    enforcement = Enforcement.absolute()
+    reports = build_reports(
+        scan=scan,
+        profile=profile,
+        enforcement=enforcement,
+        evaluation=evaluate(current=scan, profile=profile, enforcement=enforcement),
+    )
+
+    assert reports.full["checks"]["semgrep"]["immediate_count"] == 1
+    assert reports.full["checks"]["yamllint"]["count"] == 1
+    assert reports.full["checks"]["markdownlint"]["count"] == 1
+    assert reports.full["checks"]["typos"]["findings"][0]["suggestions"] == ["replacement"]
+    repair_checks = {item["check"] for item in reports.fix_context["repair_batch"]}
+    assert {"semgrep", "yamllint", "markdownlint", "typos"} <= repair_checks
+    summary = render_summary(reports)
+    assert "| Semgrep |" in summary
+    assert "| YAML lint |" in summary
+    assert "| Markdown lint |" in summary
+    assert "| Typos |" in summary
+    annotations = render_annotations(reports)
+    assert len(annotations) == 4
+    assert any("title=Semgrep" in annotation for annotation in annotations)
+
+
+def test_path_context_findings_are_reported_without_source_annotations() -> None:
+    finding = ToolFinding(
+        tool="typos",
+        rule="typo",
+        path="teh-file.txt",
+        line=1,
+        column=1,
+        end_line=1,
+        end_column=3,
+        message="Possible typo 'teh' in file path",
+        severity="warning",
+        suggestions=("the",),
+        path_context=True,
+    )
+    scan = ScanResult(
+        duplication=DuplicationResult(0.0, 0, 1, ()),
+        functions=(),
+        typos=(finding,),
+    )
+    profile = get_profile("minimal")
+    enforcement = Enforcement.absolute()
+    reports = build_reports(
+        scan=scan,
+        profile=profile,
+        enforcement=enforcement,
+        evaluation=evaluate(current=scan, profile=profile, enforcement=enforcement),
+    )
+
+    assert reports.full["checks"]["typos"]["findings"][0]["location"] == "path"
+    assert render_annotations(reports) == []
+
+
+def test_fix_context_bounds_fragments_inside_one_clone_family() -> None:
+    fragments = tuple(CloneFragment(f"src/copy_{index}.py", 1, 6) for index in range(51))
     clones = tuple(
         DuplicationClone(fragments[index], fragments[index + 1], 6, 50, "python")
         for index in range(50)
@@ -226,9 +341,7 @@ def test_fix_context_bounds_fragments_inside_one_clone_family() -> None:
 def test_annotation_properties_escape_commas_and_colons() -> None:
     scan = ScanResult(
         duplication=DuplicationResult(0.0, 0, 10, ()),
-        functions=(
-            ComplexityFunction("src/a,b:c.py", 1, 12, "complex", 11),
-        ),
+        functions=(ComplexityFunction("src/a,b:c.py", 1, 12, "complex", 11),),
     )
     profile = get_profile("strict")
     enforcement = Enforcement.absolute()

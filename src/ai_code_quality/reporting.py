@@ -9,12 +9,17 @@ from typing import Any
 from ai_code_quality.checks.common import DEFAULT_EXCLUDED_DIRECTORIES
 from ai_code_quality.checks.jscpd import JSCPD_VERSION
 from ai_code_quality.checks.lizard import LIZARD_VERSION
+from ai_code_quality.checks.markdownlint import MARKDOWNLINT_VERSION
+from ai_code_quality.checks.semgrep import SEMGREP_VERSION
+from ai_code_quality.checks.yamllint import YAMLLINT_VERSION
 from ai_code_quality.evaluator import Enforcement, EnforcementKind, QualityEvaluation
+from ai_code_quality.install_typos import TYPOS_VERSION
 from ai_code_quality.models import (
     CloneFragment,
     ComplexityFunction,
     DuplicationClone,
     ScanResult,
+    ToolFinding,
 )
 from ai_code_quality.profiles import Profile
 
@@ -56,9 +61,7 @@ def _fragment_key(fragment: CloneFragment) -> tuple[str, int, int]:
 def _clone_families(clones: tuple[DuplicationClone, ...]) -> list[dict[str, Any]]:
     fragments: dict[tuple[str, int, int], CloneFragment] = {}
     parent: dict[tuple[str, int, int], tuple[str, int, int]] = {}
-    clone_by_edge: list[
-        tuple[tuple[str, int, int], tuple[str, int, int], DuplicationClone]
-    ] = []
+    clone_by_edge: list[tuple[tuple[str, int, int], tuple[str, int, int], DuplicationClone]] = []
 
     def find(item: tuple[str, int, int]) -> tuple[str, int, int]:
         root = item
@@ -118,9 +121,7 @@ def _clone_families(clones: tuple[DuplicationClone, ...]) -> list[dict[str, Any]
     )
 
 
-def _bounded_family(
-    family: dict[str, Any], *, fragment_limit: int = 10
-) -> dict[str, Any]:
+def _bounded_family(family: dict[str, Any], *, fragment_limit: int = 10) -> dict[str, Any]:
     fragments = family["fragments"]
     return {
         **family,
@@ -137,22 +138,74 @@ def _function_dict(function: ComplexityFunction) -> dict[str, object]:
         "end_line": function.end_line,
         "symbol": function.symbol,
         "ccn": function.ccn,
+        "length": function.length,
+        "parameter_count": function.parameter_count,
     }
 
 
-def _complexity_repair_item(
-    function: ComplexityFunction, limit: int
-) -> dict[str, object]:
+def _complexity_repair_item(function: ComplexityFunction, limit: int) -> dict[str, object]:
     item = _function_dict(function)
     return {
-        "id": (
-            f"complexity:{function.path}:{function.symbol}:{function.start_line}"
-        ),
+        "id": (f"complexity:{function.path}:{function.symbol}:{function.start_line}"),
         "check": "complexity",
         "kind": "complex-function",
         **item,
         "maximum": limit,
         "excess_debt": function.ccn - limit,
+    }
+
+
+def _function_metric_repair_item(
+    function: ComplexityFunction, *, check: str, maximum: int, observed: int
+) -> dict[str, object]:
+    return {
+        "id": f"{check}:{function.path}:{function.symbol}:{function.start_line}",
+        "check": check,
+        "kind": "function-metric",
+        **_function_dict(function),
+        "maximum": maximum,
+        "observed": observed,
+        "excess_debt": observed - maximum,
+    }
+
+
+def _tool_finding_dict(finding: ToolFinding) -> dict[str, object]:
+    return {
+        "tool": finding.tool,
+        "rule": finding.rule,
+        "path": finding.path,
+        "line": finding.line,
+        "column": finding.column,
+        "end_line": finding.end_line,
+        "end_column": finding.end_column,
+        "message": finding.message,
+        "severity": finding.severity,
+        "suggestions": list(finding.suggestions),
+        "location": "path" if finding.path_context else "source",
+    }
+
+
+def _tool_repair_item(finding: ToolFinding) -> dict[str, object]:
+    return {
+        "id": (f"{finding.tool}:{finding.path}:{finding.rule}:{finding.line}:{finding.column}"),
+        "check": finding.tool,
+        "kind": "tool-finding",
+        **_tool_finding_dict(finding),
+    }
+
+
+def _finding_check(evaluation: Any) -> dict[str, object]:
+    return {
+        "status": "skipped"
+        if evaluation.skipped
+        else "pass"
+        if evaluation.quality_passed
+        else "fail",
+        "blocking": evaluation.blocking,
+        "count": evaluation.count,
+        "immediate_count": evaluation.immediate_count,
+        "allowed_count": evaluation.allowed_count,
+        "findings": [_tool_finding_dict(finding) for finding in evaluation.findings],
     }
 
 
@@ -172,12 +225,18 @@ def build_reports(
     max_observed_ccn = max((function.ccn for function in scan.functions), default=0)
 
     full: dict[str, Any] = {
-        "schema_version": 1,
+        "schema_version": 2,
         "verdict": "pass" if evaluation.passed else "fail",
         "quality_verdict": (
             "pass"
             if evaluation.duplication.quality_passed
             and evaluation.complexity.quality_passed
+            and evaluation.function_length.quality_passed
+            and evaluation.arguments.quality_passed
+            and evaluation.semgrep.quality_passed
+            and evaluation.yamllint.quality_passed
+            and evaluation.markdownlint.quality_passed
+            and evaluation.typos.quality_passed
             else "fail"
         ),
         "profile": profile.name,
@@ -194,8 +253,19 @@ def build_reports(
             },
             "lizard": {
                 "version": LIZARD_VERSION,
-                "metric": "cyclomatic-complexity-per-function",
+                "metrics": [
+                    "cyclomatic-complexity-per-function",
+                    "function-length",
+                    "parameter-count",
+                ],
             },
+            "semgrep": {"version": SEMGREP_VERSION, "policy": profile.semgrep_policy},
+            "yamllint": {"version": YAMLLINT_VERSION, "policy": profile.yamllint_policy},
+            "markdownlint": {
+                "version": MARKDOWNLINT_VERSION,
+                "policy": profile.markdownlint_policy,
+            },
+            "typos": {"version": TYPOS_VERSION, "enabled": profile.typos_enabled},
             "excluded_directories": list(DEFAULT_EXCLUDED_DIRECTORIES),
         },
         "checks": {
@@ -232,15 +302,61 @@ def build_reports(
                 else [],
                 "functions": [_function_dict(function) for function in scan.functions],
             },
+            "function_length": {
+                "status": "skipped"
+                if evaluation.function_length.skipped
+                else "pass"
+                if evaluation.function_length.quality_passed
+                else "fail",
+                "blocking": evaluation.function_length.blocking,
+                "maximum": evaluation.function_length.maximum,
+                "debt": evaluation.function_length.debt,
+                "allowed_debt": evaluation.function_length.allowed_debt,
+                "findings": [
+                    _function_dict(function) for function in evaluation.function_length.findings
+                ],
+            },
+            "arguments": {
+                "status": "skipped"
+                if evaluation.arguments.skipped
+                else "pass"
+                if evaluation.arguments.quality_passed
+                else "fail",
+                "blocking": evaluation.arguments.blocking,
+                "maximum": evaluation.arguments.maximum,
+                "debt": evaluation.arguments.debt,
+                "allowed_debt": evaluation.arguments.allowed_debt,
+                "findings": [
+                    _function_dict(function) for function in evaluation.arguments.findings
+                ],
+            },
+            "semgrep": _finding_check(evaluation.semgrep),
+            "yamllint": _finding_check(evaluation.yamllint),
+            "markdownlint": _finding_check(evaluation.markdownlint),
+            "typos": _finding_check(evaluation.typos),
         },
         "baseline": None,
     }
     if baseline is not None and profile.max_ccn is not None:
+        assert profile.max_function_length is not None
+        assert profile.max_parameters is not None
         full["baseline"] = {
             "duplication_percent": baseline.duplication.percentage,
             "complexity_debt": sum(
                 max(0, function.ccn - profile.max_ccn) for function in baseline.functions
             ),
+            "function_length_debt": sum(
+                max(0, function.length - profile.max_function_length)
+                for function in baseline.functions
+            ),
+            "argument_debt": sum(
+                max(0, function.parameter_count - profile.max_parameters)
+                for function in baseline.functions
+            ),
+            "semgrep_count": sum(finding.severity != "error" for finding in baseline.semgrep),
+            "yamllint_count": len(baseline.yamllint),
+            "markdownlint_count": len(baseline.markdownlint),
+            "typos_count": len(baseline.typos),
         }
 
     repair_items: list[dict[str, object]] = []
@@ -249,6 +365,36 @@ def build_reports(
             _complexity_repair_item(function, profile.max_ccn)
             for function in evaluation.complexity.findings
         )
+    if not evaluation.function_length.quality_passed and profile.max_function_length is not None:
+        repair_items.extend(
+            _function_metric_repair_item(
+                function,
+                check="function_length",
+                maximum=profile.max_function_length,
+                observed=function.length,
+            )
+            for function in evaluation.function_length.findings
+        )
+    if not evaluation.arguments.quality_passed and profile.max_parameters is not None:
+        repair_items.extend(
+            _function_metric_repair_item(
+                function,
+                check="arguments",
+                maximum=profile.max_parameters,
+                observed=function.parameter_count,
+            )
+            for function in evaluation.arguments.findings
+        )
+    for finding_evaluation in (
+        evaluation.semgrep,
+        evaluation.yamllint,
+        evaluation.markdownlint,
+        evaluation.typos,
+    ):
+        if not finding_evaluation.quality_passed:
+            repair_items.extend(
+                _tool_repair_item(finding) for finding in finding_evaluation.findings
+            )
     if not evaluation.duplication.quality_passed:
         repair_items.extend(_bounded_family(family) for family in families)
 
@@ -277,6 +423,43 @@ def build_reports(
                 ),
             }
         )
+    for check, metric, maximum, metric_evaluation in (
+        (
+            "function_length",
+            "function length",
+            profile.max_function_length,
+            evaluation.function_length,
+        ),
+        ("arguments", "parameter count", profile.max_parameters, evaluation.arguments),
+    ):
+        if not metric_evaluation.skipped and maximum is not None:
+            preserve.append(
+                {
+                    "check": check,
+                    "maximum": maximum,
+                    "current_debt": metric_evaluation.debt,
+                    "instruction": (
+                        f"Do not increase {metric} for passing functions or increase "
+                        f"total {check} debt."
+                    ),
+                }
+            )
+    for check, finding_evaluation in (
+        ("semgrep", evaluation.semgrep),
+        ("yamllint", evaluation.yamllint),
+        ("markdownlint", evaluation.markdownlint),
+        ("typos", evaluation.typos),
+    ):
+        if not finding_evaluation.skipped:
+            preserve.append(
+                {
+                    "check": check,
+                    "current_count": finding_evaluation.count,
+                    "allowed_count": finding_evaluation.allowed_count,
+                    "immediate_count": finding_evaluation.immediate_count,
+                    "instruction": f"Do not introduce new {check} findings.",
+                }
+            )
 
     near_limit: list[dict[str, object]] = []
     if profile.max_ccn is not None:
@@ -292,7 +475,7 @@ def build_reports(
         near_limit = [_function_dict(function) for function in candidates[:near_limit_limit]]
 
     fix_context: dict[str, Any] = {
-        "schema_version": 1,
+        "schema_version": 2,
         "verdict": "pass" if evaluation.passed else "fail",
         "profile": profile.name,
         "enforcement": full["enforcement"],
@@ -311,6 +494,8 @@ def render_summary(reports: Reports) -> str:
     checks = full["checks"]
     duplication = checks["duplication"]
     complexity = checks["complexity"]
+    function_length = checks["function_length"]
+    arguments = checks["arguments"]
     if full["enforcement"]["mode"] == EnforcementKind.REPORT_ONLY.value:
         verdict = "REPORT ONLY"
     else:
@@ -330,6 +515,23 @@ def render_summary(reports: Reports) -> str:
     else:
         complexity_result = f"debt {complexity['debt']}"
         complexity_required = f"<= debt {complexity['allowed_debt']}"
+
+    def debt_values(check: dict[str, object]) -> tuple[str, str]:
+        if check["status"] == "skipped":
+            return "Disabled", "Disabled"
+        return f"debt {check['debt']}", f"<= debt {check['allowed_debt']}"
+
+    def finding_values(check: dict[str, object]) -> tuple[str, str]:
+        if check["status"] == "skipped":
+            return "Disabled", "Disabled"
+        result = f"{check['count']} ratcheted"
+        required = f"<= {check['allowed_count']} ratcheted"
+        if check["immediate_count"]:
+            result += f" + {check['immediate_count']} immediate"
+        return result, required
+
+    length_result, length_required = debt_values(function_length)
+    arguments_result, arguments_required = debt_values(arguments)
     lines = [
         f"# AI Code Quality: {verdict}",
         "",
@@ -347,6 +549,27 @@ def render_summary(reports: Reports) -> str:
             f"| Complexity | {complexity_result} | "
             f"{complexity_required} | "
             f"{str(complexity['status']).upper()} |"
+        ),
+        (
+            f"| Function length | {length_result} | {length_required} | "
+            f"{str(function_length['status']).upper()} |"
+        ),
+        (
+            f"| Arguments | {arguments_result} | {arguments_required} | "
+            f"{str(arguments['status']).upper()} |"
+        ),
+        *(
+            (
+                f"| {label} | {finding_values(checks[key])[0]} | "
+                f"{finding_values(checks[key])[1]} | "
+                f"{str(checks[key]['status']).upper()} |"
+            )
+            for key, label in (
+                ("semgrep", "Semgrep"),
+                ("yamllint", "YAML lint"),
+                ("markdownlint", "Markdown lint"),
+                ("typos", "Typos"),
+            )
         ),
         "",
         "## Preserve",
@@ -372,6 +595,22 @@ def render_summary(reports: Reports) -> str:
                 f"{index}. `{item['path']}:{item['start_line']}-{item['end_line']}` "
                 f"`{item['symbol']}`, CCN {item['ccn']}, allowed {item['maximum']}"
             )
+        elif item["kind"] == "function-metric":
+            lines.append(
+                f"{index}. `{item['path']}:{item['start_line']}-{item['end_line']}` "
+                f"`{item['symbol']}`, {item['check']} {item['observed']}, "
+                f"allowed {item['maximum']}"
+            )
+        elif item["kind"] == "tool-finding":
+            if item["location"] == "path":
+                lines.append(
+                    f"{index}. `{item['path']}` path `{item['rule']}`: {item['message']}"
+                )
+            else:
+                lines.append(
+                    f"{index}. `{item['path']}:{item['line']}` "
+                    f"`{item['rule']}`: {item['message']}"
+                )
         else:
             fragments = item["fragments"]
             first = fragments[0]
@@ -405,9 +644,7 @@ def render_annotations(reports: Reports, *, limit: int = 40) -> list[str]:
         raise ValueError("Annotation limit cannot be negative")
     full = reports.full
     severity = (
-        "warning"
-        if full["enforcement"]["mode"] == EnforcementKind.REPORT_ONLY.value
-        else "error"
+        "warning" if full["enforcement"]["mode"] == EnforcementKind.REPORT_ONLY.value else "error"
     )
     annotations: list[str] = []
     complexity = full["checks"]["complexity"]
@@ -422,6 +659,44 @@ def render_annotations(reports: Reports, *, limit: int = 40) -> list[str]:
                 f"{_escape_command_value(item['symbol'])} has CCN {item['ccn']}; "
                 f"the {full['profile']} limit is {max_ccn}."
             )
+    for key, title, observed_field in (
+        ("function_length", "Function length", "length"),
+        ("arguments", "Arguments", "parameter_count"),
+    ):
+        check = full["checks"][key]
+        if check["status"] == "fail":
+            for item in check["findings"]:
+                if len(annotations) >= limit:
+                    return annotations
+                annotations.append(
+                    f"::{severity} file={_escape_command_property(item['path'])},"
+                    f"line={item['start_line']},endLine={item['end_line']},"
+                    f"title={_escape_command_property(title)}::"
+                    f"{_escape_command_value(item['symbol'])} has {observed_field} "
+                    f"{item[observed_field]}; the {full['profile']} limit is "
+                    f"{check['maximum']}."
+                )
+    for key, title in (
+        ("semgrep", "Semgrep"),
+        ("yamllint", "YAML lint"),
+        ("markdownlint", "Markdown lint"),
+        ("typos", "Typos"),
+    ):
+        check = full["checks"][key]
+        if check["status"] == "fail":
+            for item in check["findings"]:
+                if len(annotations) >= limit:
+                    return annotations
+                if item["location"] == "path":
+                    continue
+                annotations.append(
+                    f"::{severity} file={_escape_command_property(item['path'])},"
+                    f"line={item['line']},col={item['column']},"
+                    f"endLine={item['end_line']},endColumn={item['end_column']},"
+                    f"title={_escape_command_property(title)}::"
+                    f"{_escape_command_value(item['rule'])}: "
+                    f"{_escape_command_value(item['message'])}"
+                )
     duplication = full["checks"]["duplication"]
     if duplication["status"] == "fail":
         for family in duplication["families"]:

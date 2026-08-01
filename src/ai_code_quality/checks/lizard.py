@@ -31,13 +31,21 @@ def parse_lizard_csv(path: Path) -> tuple[ComplexityFunction, ...]:
                     )
                 try:
                     ccn = int(row[1])
+                    parameter_count = int(row[3])
+                    length = int(row[4])
                     start_line = int(row[9])
                     end_line = int(row[10])
                 except ValueError as exc:
                     raise ValueError(
                         f"Invalid numeric value in Lizard CSV row {row_number}"
                     ) from exc
-                if ccn < 1 or start_line < 1 or end_line < start_line:
+                if (
+                    ccn < 1
+                    or parameter_count < 0
+                    or length < 1
+                    or start_line < 1
+                    or end_line < start_line
+                ):
                     raise ValueError(f"Invalid range in Lizard CSV row {row_number}")
                 functions.append(
                     ComplexityFunction(
@@ -46,6 +54,8 @@ def parse_lizard_csv(path: Path) -> tuple[ComplexityFunction, ...]:
                         end_line=end_line,
                         symbol=row[7] or "<anonymous>",
                         ccn=ccn,
+                        length=length,
+                        parameter_count=parameter_count,
                     )
                 )
     except (OSError, UnicodeError) as exc:

@@ -34,9 +34,30 @@ class ComplexityFunction:
     end_line: int
     symbol: str
     ccn: int
+    length: int = 0
+    parameter_count: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class ToolFinding:
+    tool: str
+    rule: str
+    path: str
+    line: int
+    column: int
+    end_line: int
+    end_column: int
+    message: str
+    severity: str
+    suggestions: tuple[str, ...] = ()
+    path_context: bool = False
 
 
 @dataclass(frozen=True, slots=True)
 class ScanResult:
     duplication: DuplicationResult
     functions: tuple[ComplexityFunction, ...]
+    semgrep: tuple[ToolFinding, ...] = ()
+    yamllint: tuple[ToolFinding, ...] = ()
+    markdownlint: tuple[ToolFinding, ...] = ()
+    typos: tuple[ToolFinding, ...] = ()
