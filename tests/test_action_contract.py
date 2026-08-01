@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import tomllib
 from pathlib import Path
 
 import yaml
@@ -12,7 +13,7 @@ def test_action_metadata_exposes_confirmed_public_interface() -> None:
 
     assert metadata["name"] == "AI Code Quality"
     assert metadata["inputs"]["level"]["default"] == "standard"
-    assert metadata["inputs"]["require-improvement"]["default"] == "false"
+    assert metadata["inputs"]["require-improvement"]["default"] == "2"
     assert metadata["inputs"]["path"]["default"] == "."
     assert set(metadata["inputs"]) == {
         "level",
@@ -33,6 +34,12 @@ def test_action_metadata_exposes_confirmed_public_interface() -> None:
     }
     assert metadata["runs"]["using"] == "composite"
     assert any(step.get("id") == "quality" for step in metadata["runs"]["steps"])
+
+
+def test_package_version_matches_v1_1_release() -> None:
+    metadata = tomllib.loads((ROOT / "pyproject.toml").read_text())
+
+    assert metadata["project"]["version"] == "1.1.0"
 
 
 def test_action_outputs_forward_quality_step_outputs() -> None:

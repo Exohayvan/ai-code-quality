@@ -24,6 +24,14 @@ def test_ci_exercises_unit_package_and_composite_action_paths() -> None:
     assert any(step.get("uses") == "./" for step in self_test_steps)
     assert any(step.get("continue-on-error") == "true" for step in self_test_steps)
 
+    passing_step = next(step for step in self_test_steps if step.get("id") == "passing")
+    assert "require-improvement" not in passing_step.get("with", {})
+    assert passing_step["with"]["baseline-ref"] == "HEAD^"
+    passing_verification = next(
+        step for step in self_test_steps if step.get("name") == "Verify passing outputs"
+    )
+    assert "baseline-sha" in str(passing_verification.get("env", {}))
+
     all_steps = jobs["validate"]["steps"] + self_test_steps
     uses = {step["uses"] for step in all_steps if "uses" in step}
     assert "actions/checkout@v7" in uses

@@ -60,7 +60,7 @@ jobs:
         with:
           path: tests/fixtures/action-pass
           level: strict
-          require-improvement: "false"
+          baseline-ref: HEAD^
 
       - name: Verify passing outputs
         env:
@@ -68,11 +68,13 @@ jobs:
           DUPLICATION: ${{ steps.passing.outputs.duplication-percent }}
           COMPLEXITY_DEBT: ${{ steps.passing.outputs.complexity-debt }}
           REPORT_PATH: ${{ steps.passing.outputs.report-path }}
+          BASELINE_SHA: ${{ steps.passing.outputs.baseline-sha }}
         run: |
           test "$RESULT" = "pass"
           test "$DUPLICATION" = "0.0"
           test "$COMPLEXITY_DEBT" = "0"
           test -f "$REPORT_PATH"
+          test -n "$BASELINE_SHA"
 
       - name: Run expected strict failure
         id: failing
