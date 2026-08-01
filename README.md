@@ -21,12 +21,11 @@ jobs:
           fetch-depth: 0
 
       - uses: Exohayvan/ai-code-quality@v1
-        with:
-          level: standard
-          require-improvement: "false"
 ```
 
 The action scans the complete repository, not only changed files. It supports repositories containing multiple languages by combining [jscpd](https://github.com/kucherenko/jscpd) duplication detection with [Lizard](https://github.com/terryyin/lizard) per-function cyclomatic complexity analysis.
+
+By default, each run requires both duplication and complexity debt to improve by at least 2% against the automatically resolved baseline. A metric already at zero must remain at zero. Use `require-improvement: "false"` when you want only the selected profile's absolute limits.
 
 `v1` pins jscpd `5.0.14` and Lizard `1.23.0` for reproducible measurements.
 
@@ -51,7 +50,7 @@ The profiles are monotonic: stronger profiles never loosen or disable checks fro
 | Input | Default | Description |
 | --- | --- | --- |
 | `level` | `standard` | One of `none`, `minimal`, `basic`, `standard`, `strict`, `hardened`, or `maximum`. |
-| `require-improvement` | `false` | Absolute, report-only, maintenance, or percentage-improvement enforcement. |
+| `require-improvement` | `2` | Absolute, report-only, maintenance, or percentage-improvement enforcement. |
 | `path` | `.` | Repository or subdirectory to analyze. |
 | `baseline-ref` | empty | Explicit Git ref for baseline comparisons. |
 | `repair-limit` | `15` | Maximum findings placed in the bounded AI repair batch. |

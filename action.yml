@@ -14,7 +14,7 @@ inputs:
   require-improvement:
     description: Use false, -1, 0, or a required improvement percentage
     required: false
-    default: "false"
+    default: "2"
   path:
     description: Repository path to analyze
     required: false
