@@ -23,3 +23,9 @@ def test_ci_exercises_unit_package_and_composite_action_paths() -> None:
     self_test_steps = jobs["self-test"]["steps"]
     assert any(step.get("uses") == "./" for step in self_test_steps)
     assert any(step.get("continue-on-error") == "true" for step in self_test_steps)
+
+    all_steps = jobs["validate"]["steps"] + self_test_steps
+    uses = {step["uses"] for step in all_steps if "uses" in step}
+    assert "actions/checkout@v7" in uses
+    assert "actions/setup-python@v7" in uses
+    assert "actions/setup-node@v7" in uses
