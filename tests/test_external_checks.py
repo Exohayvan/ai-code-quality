@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
 import ai_code_quality.checks.markdownlint as markdownlint_check
+import ai_code_quality.checks.semgrep as semgrep_check
 from ai_code_quality.checks.common import CommandOutput
 from ai_code_quality.checks.markdownlint import parse_markdownlint_json, run_markdownlint
-from ai_code_quality.checks.semgrep import parse_semgrep_json
+from ai_code_quality.checks.semgrep import parse_semgrep_json, run_semgrep
 from ai_code_quality.checks.typos import parse_typos_jsonl, run_typos
 from ai_code_quality.checks.yamllint import parse_yamllint_output, run_yamllint
 from ai_code_quality.policies import (
@@ -47,11 +49,98 @@ def test_parse_semgrep_json_normalizes_coordinates_and_severity() -> None:
     assert findings[0].severity == "error"
 
 
+def test_parse_semgrep_json_preserves_source_syntax_errors_as_blocking_findings() -> None:
+    payload = json.dumps(
+        {
+            "version": "1.172.0",
+            "results": [],
+            "errors": [
+                {
+                    "code": 3,
+                    "level": "warn",
+                    "message": (
+                        "Syntax error at line tui_gateway/server.py:5538:\n `,` was unexpected"
+                    ),
+                    "path": "tui_gateway/server.py",
+                    "type": "Syntax error",
+                }
+            ],
+        }
+    )
+
+    findings = parse_semgrep_json(payload)
+
+    assert len(findings) == 1
+    assert findings[0].tool == "semgrep"
+    assert findings[0].rule == "semgrep.syntax-error"
+    assert findings[0].path == "tui_gateway/server.py"
+    assert findings[0].line == 5538
+    assert findings[0].column == 1
+    assert findings[0].end_line == 5538
+    assert findings[0].end_column == 1
+    assert findings[0].severity == "error"
+    assert findings[0].message == (
+        "Syntax error at line tui_gateway/server.py:5538:\n `,` was unexpected"
+    )
+
+
 def test_parse_semgrep_json_fails_closed_on_engine_errors() -> None:
     payload = json.dumps({"version": "1.172.0", "results": [], "errors": [{"message": "bad rule"}]})
 
     with pytest.raises(ValueError, match="Semgrep reported scanner errors"):
         parse_semgrep_json(payload)
+
+
+def test_run_semgrep_accepts_strict_exit_for_source_syntax_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    payload = json.dumps(
+        {
+            "version": "1.172.0",
+            "results": [],
+            "errors": [
+                {
+                    "code": 3,
+                    "level": "warn",
+                    "message": "Syntax error at line broken.py:9:\n unexpected token",
+                    "path": "broken.py",
+                    "type": "Syntax error",
+                }
+            ],
+        }
+    )
+    observed: dict[str, object] = {}
+
+    def fake_run(command, **kwargs) -> CommandOutput:
+        observed["accepted_exit_codes"] = kwargs.get("accepted_exit_codes")
+        return CommandOutput(payload, "", 3)
+
+    monkeypatch.setattr(semgrep_check, "resolve_command", lambda name: name)
+    monkeypatch.setattr(semgrep_check, "run_command_capture", fake_run)
+
+    findings = run_semgrep(tmp_path, "standard")
+
+    assert observed["accepted_exit_codes"] == frozenset({0, 3})
+    assert len(findings) == 1
+    assert findings[0].rule == "semgrep.syntax-error"
+    assert findings[0].path == "broken.py"
+    assert findings[0].line == 9
+
+
+def test_run_semgrep_rejects_unexplained_strict_exit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    payload = json.dumps({"version": "1.172.0", "results": [], "errors": []})
+
+    monkeypatch.setattr(semgrep_check, "resolve_command", lambda name: name)
+    monkeypatch.setattr(
+        semgrep_check,
+        "run_command_capture",
+        lambda command, **kwargs: CommandOutput(payload, "", 3),
+    )
+
+    with pytest.raises(RuntimeError, match="unexplained exit code 3"):
+        run_semgrep(tmp_path, "standard")
 
 
 def test_parse_yamllint_output_normalizes_parsable_lines() -> None:
