@@ -24,6 +24,35 @@ def _positive_int(value: Any, label: str) -> int:
     return value
 
 
+def _syntax_error_finding(value: object) -> ToolFinding:
+    if not isinstance(value, dict) or value.get("type") != "Syntax error":
+        raise ValueError("Semgrep reported scanner errors")
+    if value.get("code") != 3 or value.get("level") not in {"warn", "error"}:
+        raise ValueError("Invalid Semgrep syntax error metadata")
+    path = value.get("path")
+    message = value.get("message")
+    if not isinstance(path, str) or not path or not isinstance(message, str) or not message:
+        raise ValueError("Invalid Semgrep syntax error text")
+    location_prefix = f"Syntax error at line {path}:"
+    if not message.startswith(location_prefix):
+        raise ValueError("Invalid Semgrep syntax error location")
+    line_text, separator, _ = message.removeprefix(location_prefix).partition(":")
+    if not separator or not line_text.isdecimal():
+        raise ValueError("Invalid Semgrep syntax error line")
+    line = _positive_int(int(line_text), "syntax error line")
+    return ToolFinding(
+        tool="semgrep",
+        rule="semgrep.syntax-error",
+        path=normalize_scanner_path(path),
+        line=line,
+        column=1,
+        end_line=line,
+        end_column=1,
+        message=message,
+        severity="error",
+    )
+
+
 def parse_semgrep_json(payload: str) -> tuple[ToolFinding, ...]:
     try:
         document = json.loads(payload)
@@ -36,13 +65,12 @@ def parse_semgrep_json(payload: str) -> tuple[ToolFinding, ...]:
     errors = document.get("errors")
     if not isinstance(errors, list):
         raise ValueError("Invalid Semgrep errors collection")
-    if errors:
-        raise ValueError("Semgrep reported scanner errors")
+    error_findings = [_syntax_error_finding(error) for error in errors]
     results = document.get("results")
     if not isinstance(results, list):
         raise ValueError("Invalid Semgrep results collection")
 
-    findings: list[ToolFinding] = []
+    findings: list[ToolFinding] = list(error_findings)
     for item in results:
         if not isinstance(item, dict):
             raise ValueError("Invalid Semgrep finding")
@@ -114,5 +142,15 @@ def run_semgrep(repository: Path, policy: str) -> tuple[ToolFinding, ...]:
         for directory in DEFAULT_EXCLUDED_DIRECTORIES:
             command.extend(("--exclude", directory))
         command.append(".")
-        output = run_command_capture(command, cwd=repository, timeout=900)
-    return parse_semgrep_json(output.stdout)
+        output = run_command_capture(
+            command,
+            cwd=repository,
+            timeout=900,
+            accepted_exit_codes=frozenset({0, 3}),
+        )
+    findings = parse_semgrep_json(output.stdout)
+    if output.returncode == 3 and not any(
+        finding.rule == "semgrep.syntax-error" for finding in findings
+    ):
+        raise RuntimeError("Semgrep reported unexplained exit code 3")
+    return findings
