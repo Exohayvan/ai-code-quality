@@ -1,0 +1,158 @@
+{
+  "schema_version": 1,
+  "profiles": [
+    "none",
+    "minimal",
+    "basic",
+    "standard",
+    "strict",
+    "hardened",
+    "maximum"
+  ],
+  "languages": [
+    {
+      "id": "python",
+      "stable": [
+        {"repository": "psf/requests"},
+        {"repository": "pallets/flask"}
+      ],
+      "rotating": [
+        {"repository": "django/django"},
+        {"repository": "pydantic/pydantic"},
+        {"repository": "encode/httpx"}
+      ]
+    },
+    {
+      "id": "javascript",
+      "stable": [
+        {"repository": "expressjs/express"},
+        {"repository": "lodash/lodash"}
+      ],
+      "rotating": [
+        {"repository": "axios/axios"},
+        {"repository": "nodejs/undici"},
+        {"repository": "jquery/jquery"}
+      ]
+    },
+    {
+      "id": "typescript",
+      "stable": [
+        {"repository": "microsoft/TypeScript"},
+        {"repository": "reduxjs/redux-toolkit"}
+      ],
+      "rotating": [
+        {"repository": "colinhacks/zod"},
+        {"repository": "trpc/trpc"},
+        {"repository": "vitejs/vite"}
+      ]
+    },
+    {
+      "id": "java",
+      "stable": [
+        {"repository": "google/guava"},
+        {"repository": "apache/commons-lang"}
+      ],
+      "rotating": [
+        {"repository": "junit-team/junit5"},
+        {"repository": "mockito/mockito"},
+        {"repository": "google/gson"}
+      ]
+    },
+    {
+      "id": "c",
+      "stable": [
+        {"repository": "curl/curl"},
+        {"repository": "libgit2/libgit2"}
+      ],
+      "rotating": [
+        {"repository": "redis/redis"},
+        {"repository": "jemalloc/jemalloc"},
+        {"repository": "DaveGamble/cJSON"}
+      ]
+    },
+    {
+      "id": "cpp",
+      "stable": [
+        {"repository": "fmtlib/fmt"},
+        {"repository": "nlohmann/json"}
+      ],
+      "rotating": [
+        {"repository": "gabime/spdlog"},
+        {"repository": "catchorg/Catch2"},
+        {"repository": "taskflow/taskflow"}
+      ]
+    },
+    {
+      "id": "csharp",
+      "stable": [
+        {"repository": "AutoMapper/AutoMapper"},
+        {"repository": "serilog/serilog"}
+      ],
+      "rotating": [
+        {"repository": "jbogard/MediatR"},
+        {"repository": "FluentValidation/FluentValidation"},
+        {"repository": "App-vNext/Polly"}
+      ]
+    },
+    {
+      "id": "go",
+      "stable": [
+        {"repository": "gorilla/mux"},
+        {"repository": "prometheus/client_golang"}
+      ],
+      "rotating": [
+        {"repository": "stretchr/testify"},
+        {"repository": "urfave/cli"},
+        {"repository": "go-chi/chi"}
+      ]
+    },
+    {
+      "id": "rust",
+      "stable": [
+        {"repository": "serde-rs/serde"},
+        {"repository": "BurntSushi/ripgrep"}
+      ],
+      "rotating": [
+        {"repository": "sharkdp/fd"},
+        {"repository": "rayon-rs/rayon"},
+        {"repository": "tokio-rs/bytes"}
+      ]
+    },
+    {
+      "id": "ruby",
+      "stable": [
+        {"repository": "ruby/rake"},
+        {"repository": "sinatra/sinatra"}
+      ],
+      "rotating": [
+        {"repository": "heartcombo/devise"},
+        {"repository": "rubocop/rubocop"},
+        {"repository": "faker-ruby/faker"}
+      ]
+    },
+    {
+      "id": "php",
+      "stable": [
+        {"repository": "symfony/console"},
+        {"repository": "guzzle/guzzle"}
+      ],
+      "rotating": [
+        {"repository": "Seldaek/monolog"},
+        {"repository": "slimphp/Slim"},
+        {"repository": "sebastianbergmann/phpunit"}
+      ]
+    },
+    {
+      "id": "swift",
+      "stable": [
+        {"repository": "Alamofire/Alamofire"},
+        {"repository": "apple/swift-argument-parser"}
+      ],
+      "rotating": [
+        {"repository": "onevcat/Kingfisher"},
+        {"repository": "realm/SwiftLint"},
+        {"repository": "pointfreeco/swift-composable-architecture"}
+      ]
+    }
+  ]
+}

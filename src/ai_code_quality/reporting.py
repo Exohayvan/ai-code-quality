@@ -280,6 +280,7 @@ def build_reports(
                 "allowed_percent": evaluation.duplication.allowed,
                 "duplicated_lines": scan.duplication.duplicated_lines,
                 "total_lines": scan.duplication.total_lines,
+                "total_tokens": scan.duplication.total_tokens,
                 "families": families,
                 "clones": [_clone_dict(clone) for clone in scan.duplication.clones],
             },
@@ -603,13 +604,10 @@ def render_summary(reports: Reports) -> str:
             )
         elif item["kind"] == "tool-finding":
             if item["location"] == "path":
-                lines.append(
-                    f"{index}. `{item['path']}` path `{item['rule']}`: {item['message']}"
-                )
+                lines.append(f"{index}. `{item['path']}` path `{item['rule']}`: {item['message']}")
             else:
                 lines.append(
-                    f"{index}. `{item['path']}:{item['line']}` "
-                    f"`{item['rule']}`: {item['message']}"
+                    f"{index}. `{item['path']}:{item['line']}` `{item['rule']}`: {item['message']}"
                 )
         else:
             fragments = item["fragments"]

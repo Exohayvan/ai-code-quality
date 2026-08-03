@@ -90,6 +90,6 @@ def test_action_provisions_its_own_node_22_runtime() -> None:
         if step.get("name") == "Install pinned quality tools"
     )
 
-    assert setup_step["uses"] == "actions/setup-node@v7"
+    assert setup_step["uses"] == ("actions/setup-node@820762786026740c76f36085b0efc47a31fe5020")
     assert setup_step["with"]["node-version"] == "22"
     assert steps.index(setup_step) < install_index

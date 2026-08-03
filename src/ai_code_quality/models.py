@@ -25,6 +25,7 @@ class DuplicationResult:
     duplicated_lines: int
     total_lines: int
     clones: tuple[DuplicationClone, ...]
+    total_tokens: int = 0
 
 
 @dataclass(frozen=True, slots=True)
