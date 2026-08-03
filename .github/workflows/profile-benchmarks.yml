@@ -1,0 +1,238 @@
+name: Profile runtime benchmarks
+
+on:
+  schedule:
+    - cron: "17 4 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: profile-runtime-benchmarks
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Prepare benchmark matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+      expected_cells: ${{ steps.matrix.outputs.expected_cells }}
+    steps:
+      - name: Check out benchmark action
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7
+        with:
+          python-version: "3.11"
+
+      - name: Resolve rotating corpus and pin commits
+        id: matrix
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python scripts/benchmark_profiles.py matrix \
+            --manifest .github/benchmarks/repositories.json \
+            --seed "${{ github.run_id }}" \
+            --action-sha "${{ github.sha }}" \
+            --run-id "${{ github.run_id }}" \
+            --run-attempt "${{ github.run_attempt }}" \
+            --runner-os "$RUNNER_OS" \
+            --runner-arch "$RUNNER_ARCH" \
+            --selection benchmark-selection.json \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Upload pinned benchmark selection
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: benchmark-selection
+          path: benchmark-selection.json
+          overwrite: true
+          if-no-files-found: error
+          retention-days: 30
+
+  benchmark:
+    name: ${{ matrix.language }} / ${{ matrix.repository }} / ${{ matrix.profile }}
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      max-parallel: 256
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    steps:
+      - name: Check out benchmark action
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          ref: ${{ github.sha }}
+          path: action
+          persist-credentials: false
+
+      - name: Check out target repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          repository: ${{ matrix.repository }}
+          ref: ${{ matrix.sha }}
+          path: target
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7
+        with:
+          python-version: "3.11"
+
+      - name: Start action timer
+        run: |
+          python - <<'PY' >> "$GITHUB_ENV"
+          import time
+          print(f"BENCHMARK_STARTED_NS={time.monotonic_ns()}")
+          PY
+
+      - name: Run ${{ matrix.profile }} profile
+        id: quality
+        continue-on-error: true
+        uses: ./action
+        with:
+          path: target
+          level: ${{ matrix.profile }}
+          require-improvement: "false"
+          annotation-limit: "0"
+
+      - name: Record benchmark result
+        if: ${{ always() }}
+        env:
+          QUALITY_OUTCOME: ${{ steps.quality.outcome }}
+          ACTION_RESULT: ${{ steps.quality.outputs.result }}
+          REPORT_PATH: ${{ steps.quality.outputs.report-path }}
+        run: |
+          set -euo pipefail
+          python action/scripts/benchmark_profiles.py record \
+            --cell-id "${{ matrix.cell_id }}" \
+            --language "${{ matrix.language }}" \
+            --repository "${{ matrix.repository }}" \
+            --role "${{ matrix.role }}" \
+            --sha "${{ matrix.sha }}" \
+            --profile "${{ matrix.profile }}" \
+            --quality-outcome "$QUALITY_OUTCOME" \
+            --action-result "$ACTION_RESULT" \
+            --report-path "$REPORT_PATH" \
+            --started-ns "$BENCHMARK_STARTED_NS" \
+            --runner-os "$RUNNER_OS" \
+            --runner-arch "$RUNNER_ARCH" \
+            --run-id "${{ github.run_id }}" \
+            --run-attempt "${{ github.run_attempt }}" \
+            --action-sha "${{ github.sha }}" \
+            --output "benchmark-result/${{ matrix.cell_id }}/result.json" \
+            --evidence-report "benchmark-result/${{ matrix.cell_id }}/report.json"
+
+      - name: Upload benchmark result
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: benchmark-cell-${{ github.run_attempt }}-${{ matrix.cell_id }}
+          path: benchmark-result/${{ matrix.cell_id }}
+          if-no-files-found: error
+          retention-days: 30
+
+  aggregate:
+    name: Aggregate runtime badges
+    needs: [prepare, benchmark]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out benchmark action
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7
+        with:
+          python-version: "3.11"
+
+      - name: Download pinned benchmark selection
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4
+        with:
+          name: benchmark-selection
+          path: .benchmark-selection
+
+      - name: Download all benchmark results
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4
+        with:
+          pattern: benchmark-cell-*
+          path: .benchmark-results
+
+      - name: Validate results and make Shields endpoint JSON
+        run: |
+          test "${{ needs.prepare.outputs.expected_cells }}" = "252"
+          python scripts/benchmark_profiles.py aggregate \
+            --selection .benchmark-selection/benchmark-selection.json \
+            --results .benchmark-results \
+            --badges benchmark-badges \
+            --summary benchmark-summary.json \
+            --run-attempt "${{ github.run_attempt }}"
+
+      - name: Upload aggregate evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: benchmark-summary-${{ github.run_attempt }}
+          path: |
+            benchmark-summary.json
+            benchmark-badges/*.json
+          if-no-files-found: error
+          retention-days: 90
+
+  publish:
+    name: Publish runtime badges
+    needs: aggregate
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out publication branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Download validated runtime badges
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4
+        with:
+          name: benchmark-summary-${{ github.run_attempt }}
+          path: .benchmark-publish
+
+      - name: Publish badge JSON to main
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          for attempt in 1 2 3; do
+            git fetch origin main
+            git reset --hard origin/main
+            python scripts/benchmark_profiles.py guard-publication \
+              --candidate .benchmark-publish/benchmark-badges/benchmark-lineage.json \
+              --published .github/badges/benchmark-lineage.json
+            mkdir -p .github/badges
+            rm -f .github/badges/runtime-*.json .github/badges/benchmark-lineage.json
+            cp .benchmark-publish/benchmark-badges/*.json .github/badges/
+            git add .github/badges
+            if git diff --cached --quiet; then
+              echo "Runtime badges are unchanged"
+              exit 0
+            fi
+            git commit -m "chore: update profile runtime badges"
+            if git push origin HEAD:main; then
+              exit 0
+            fi
+            echo "Push attempt $attempt failed; retrying after refresh" >&2
+          done
+          exit 1

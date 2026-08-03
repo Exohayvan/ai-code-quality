@@ -99,20 +99,15 @@ def parse_jscpd_report(path: Path) -> DuplicationResult:
             )
         )
 
-    percentage = _percentage(
-        total.get("percentage"), "statistics.total.percentage"
-    )
-    duplicated_lines = _integer(
-        total.get("duplicatedLines"), "statistics.total.duplicatedLines"
-    )
+    percentage = _percentage(total.get("percentage"), "statistics.total.percentage")
+    duplicated_lines = _integer(total.get("duplicatedLines"), "statistics.total.duplicatedLines")
     total_lines = _integer(total.get("lines"), "statistics.total.lines")
+    total_tokens = _integer(total.get("tokens", 0), "statistics.total.tokens")
     if duplicated_lines > total_lines:
         raise ValueError("Invalid jscpd totals: duplicated lines exceed total lines")
     if total_lines == 0 and percentage != 0:
         raise ValueError("Invalid jscpd totals: empty input has nonzero percentage")
-    expected_percentage = (
-        duplicated_lines / total_lines * 100 if total_lines else 0.0
-    )
+    expected_percentage = duplicated_lines / total_lines * 100 if total_lines else 0.0
     if not math.isclose(
         percentage,
         expected_percentage,
@@ -127,6 +122,7 @@ def parse_jscpd_report(path: Path) -> DuplicationResult:
         duplicated_lines=duplicated_lines,
         total_lines=total_lines,
         clones=tuple(clones),
+        total_tokens=total_tokens,
     )
 
 

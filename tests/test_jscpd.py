@@ -9,7 +9,7 @@ from ai_code_quality.checks.jscpd import parse_jscpd_report, run_jscpd
 
 
 def duplicate_body(name: str) -> str:
-    return f'''def {name}(values):
+    return f"""def {name}(values):
     total = 0
     positive = []
     negative = []
@@ -23,7 +23,7 @@ def duplicate_body(name: str) -> str:
         else:
             total += 1
     return {{"total": total, "positive": positive, "negative": negative}}
-'''
+"""
 
 
 def test_parse_jscpd_report_extracts_ranges_and_totals(tmp_path: Path) -> None:
@@ -38,7 +38,12 @@ def test_parse_jscpd_report_extracts_ranges_and_totals(tmp_path: Path) -> None:
             }
         ],
         "statistics": {
-            "total": {"percentage": 12.5, "duplicatedLines": 8, "lines": 64}
+            "total": {
+                "percentage": 12.5,
+                "duplicatedLines": 8,
+                "lines": 64,
+                "tokens": 512,
+            }
         },
     }
     path = tmp_path / "jscpd-report.json"
@@ -49,6 +54,7 @@ def test_parse_jscpd_report_extracts_ranges_and_totals(tmp_path: Path) -> None:
     assert result.percentage == 12.5
     assert result.duplicated_lines == 8
     assert result.total_lines == 64
+    assert result.total_tokens == 512
     assert result.clones[0].first.path == "src/a.py"
     assert result.clones[0].second.start_line == 7
 
@@ -64,9 +70,7 @@ def test_parse_jscpd_report_rejects_unsafe_paths(tmp_path: Path) -> None:
                 "secondFile": {"name": "src/b.py", "start": 1, "end": 8},
             }
         ],
-        "statistics": {
-            "total": {"percentage": 10, "duplicatedLines": 8, "lines": 80}
-        },
+        "statistics": {"total": {"percentage": 10, "duplicatedLines": 8, "lines": 80}},
     }
     path = tmp_path / "jscpd-report.json"
     path.write_text(json.dumps(report))
@@ -76,9 +80,7 @@ def test_parse_jscpd_report_rejects_unsafe_paths(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("percentage", [-0.01, 100.01, float("nan"), float("inf")])
-def test_parse_jscpd_report_rejects_invalid_percentages(
-    tmp_path: Path, percentage: float
-) -> None:
+def test_parse_jscpd_report_rejects_invalid_percentages(tmp_path: Path, percentage: float) -> None:
     path = tmp_path / "jscpd-report.json"
     path.write_text(
         json.dumps(
@@ -119,9 +121,7 @@ def test_parse_jscpd_report_rejects_invalid_fragment_ranges(
                 "secondFile": {"name": "src/b.py", "start": 1, "end": 8},
             }
         ],
-        "statistics": {
-            "total": {"percentage": 10, "duplicatedLines": 8, "lines": 80}
-        },
+        "statistics": {"total": {"percentage": 10, "duplicatedLines": 8, "lines": 80}},
     }
     path = tmp_path / "jscpd-report.json"
     path.write_text(json.dumps(report))

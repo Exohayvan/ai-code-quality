@@ -279,6 +279,73 @@ PYTHONPATH=src .venv/bin/python -m ai_code_quality \
   --require-improvement false
 ```
 
+## Profile runtime benchmarks
+
+The scheduled and manually dispatched `Profile runtime benchmarks` workflow measures the
+end-to-end runtime users experience when invoking this composite action. A monotonic timer starts
+immediately before `uses: ./action` and stops when the action returns. It includes the action's
+isolated tool installation, scanners, policy evaluation, and report generation. It excludes the
+benchmark workflow's repository checkouts and Python setup. GitHub-hosted runners start without a
+benchmark-owned shared tool cache, so these are cold action-invocation measurements.
+
+The versioned corpus covers Python, JavaScript, TypeScript, Java, C, C++, C#, Go, Rust, Ruby, PHP,
+and Swift. Each language contributes two fixed, established repositories plus one rotating
+repository selected from a curated candidate pool. The rotating choice is derived from the GitHub
+run ID using SHA-256, making it deterministic for the run and stable across rerun attempts. The
+preparation job resolves and records the exact default-branch commit for every selected repository
+before any scans begin.
+
+Every repository/profile pair is an independent matrix cell:
+
+```text
+12 languages x 3 repositories x 7 profiles = 252 jobs
+```
+
+The matrix uses `fail-fast: false`, so one repository does not cancel unrelated measurements.
+GitHub account concurrency limits can still queue cells; independence does not guarantee that all
+252 runners execute simultaneously. The run consumes 252 fresh Linux job runtimes, so cold setup
+and action installation are intentionally part of its billable runner cost. Each cell uploads one
+identity-bound JSON result plus the complete schema-v2 action report. The result binds the report
+bytes by SHA-256 and records the run ID and attempt, language, repository, pinned commit, profile,
+runner, action commit, outcome, token count, and elapsed seconds. Fan-in independently recomputes the
+report hash and validates its exact fields, field types, profile enablement, check outcomes, and
+verdict consistency. A quality-policy failure remains comparable only when all evidence agrees.
+Missing reports, setup failures, malformed records, missing cells, duplicate identities within an
+attempt, and any infrastructure-failed cell block badge publication.
+
+After all cells finish, one aggregation job validates the complete 252-cell ledger. It calculates
+p50 and p95 with the deterministic nearest-rank method: sort durations and select rank
+`ceil(percentile * sample_count)`. It also normalizes each token-bearing runtime to seconds per one
+million jscpd tokens using `duration_seconds * 1,000,000 / total_tokens`. The token count comes from
+the same jscpd report produced inside the timed action, so normalization neither reruns nor warms the
+scanner. The `none` profile deliberately skips jscpd, so its 36 cells remain in raw runtime
+percentiles but are excluded from the 216-sample normalized percentiles. The workflow writes Shields
+endpoint documents for the complete corpus and for every applicable profile:
+
+```text
+.github/badges/runtime-p50.json
+.github/badges/runtime-p95.json
+.github/badges/runtime-per-million-tokens-p50.json
+.github/badges/runtime-per-million-tokens-p95.json
+.github/badges/runtime-none-p50.json
+.github/badges/runtime-none-p95.json
+...
+.github/badges/runtime-maximum-p50.json
+.github/badges/runtime-maximum-p95.json
+.github/badges/runtime-maximum-per-million-tokens-p50.json
+.github/badges/runtime-maximum-per-million-tokens-p95.json
+```
+
+Aggregation runs read-only and hands only validated badge artifacts to a minimal publication job
+with repository write permission. Partial workflow reruns reuse the pinned selection, download cell
+evidence from every attempt in the same run, and select the newest valid attempt for each cell;
+duplicate records within one attempt and records from a future attempt are rejected. Publication
+records the `(run_id, run_attempt)` lineage beside the badges and rechecks it against `main` after
+every remote refresh, so rerunning an older workflow cannot roll back newer results. Pull requests
+cannot publish the benchmark, and concurrent benchmark runs are serialized. The result ledger and
+generated badges are also retained as workflow artifacts. Corpus membership is maintained in
+`.github/benchmarks/repositories.json`; changes to it are ordinary reviewed repository changes.
+
 ## License
 
 [MIT](LICENSE)
