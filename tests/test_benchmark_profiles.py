@@ -656,6 +656,65 @@ def test_duplication_evidence_requires_derived_families_and_positive_tokens() ->
     assert not module._valid_duplication_evidence(wrong_lines)
 
 
+def test_duplication_evidence_accepts_derived_self_clone_family() -> None:
+    module = _load_module()
+    fragment = {"path": "src/generated.c", "start_line": 10, "end_line": 18}
+    clone = {
+        "first": fragment,
+        "second": fragment,
+        "lines": 9,
+        "tokens": 256,
+        "language": "c",
+    }
+    check = {
+        "duplicated_lines": 9,
+        "total_tokens": 256,
+        "clones": [clone],
+        "families": module._expected_clone_families([clone]),
+    }
+
+    assert module._valid_duplication_evidence(check)
+
+
+def test_clone_family_reconstruction_indexes_each_clone_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_module()
+    clones = [
+        {
+            "first": {"path": f"src/first-{index}.ts", "start_line": 1, "end_line": 8},
+            "second": {"path": f"src/second-{index}.ts", "start_line": 1, "end_line": 8},
+            "lines": 8,
+            "tokens": 16,
+            "language": "typescript",
+        }
+        for index in range(200)
+    ]
+    fragment_key = module._fragment_key
+    minimum = min
+    calls = 0
+    minimum_calls = 0
+
+    def counted_fragment_key(fragment: dict) -> tuple[str, int, int]:
+        nonlocal calls
+        calls += 1
+        return fragment_key(fragment)
+
+    def counted_minimum(values):
+        nonlocal minimum_calls
+        minimum_calls += 1
+        return minimum(values)
+
+    monkeypatch.setattr(module, "_fragment_key", counted_fragment_key)
+    monkeypatch.setattr(module, "min", counted_minimum, raising=False)
+
+    families = module._expected_clone_families(clones)
+
+    assert len(families) == len(clones)
+    assert calls <= 3 * len(clones)
+    assert minimum_calls <= 1
+
+
 def test_report_classification_recomputes_semgrep_immediate_count(tmp_path: Path) -> None:
     module = _load_module()
     report = tmp_path / "report.json"

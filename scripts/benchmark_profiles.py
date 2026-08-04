@@ -1105,7 +1105,7 @@ def _valid_clone_family(family: object) -> bool:
             languages == sorted(set(languages)),
             all(isinstance(language, str) and language for language in languages),
             isinstance(fragments, list),
-            len(fragments) >= 2,
+            len(fragments) >= 1,
             all(_valid_fragment(fragment) for fragment in fragments),
         )
     )
@@ -1131,24 +1131,31 @@ def _clone_components(
     components = []
     while unseen:
         component = set()
-        pending = [min(unseen)]
+        pending = [unseen.pop()]
         while pending:
             key = pending.pop()
             if key in component:
                 continue
             component.add(key)
             pending.extend(adjacent[key] - component)
-        unseen -= component
+        unseen.difference_update(component)
         components.append(component)
     return fragments, components
 
 
 def _expected_clone_families(clones: list[dict[str, Any]]) -> list[dict[str, Any]]:
     fragments, components = _clone_components(clones)
+    component_by_fragment = {
+        key: index for index, component in enumerate(components) for key in component
+    }
+    members_by_component: list[list[dict[str, Any]]] = [[] for _ in components]
+    for clone in clones:
+        index = component_by_fragment[_fragment_key(clone["first"])]
+        members_by_component[index].append(clone)
+
     families = []
-    for component in components:
+    for component, members in zip(components, members_by_component, strict=True):
         keys = sorted(component)
-        members = [clone for clone in clones if _fragment_key(clone["first"]) in component]
         identity = json.dumps(keys, separators=(",", ":"), ensure_ascii=True)
         fingerprint = hashlib.sha256(identity.encode()).hexdigest()[:16]
         families.append(
