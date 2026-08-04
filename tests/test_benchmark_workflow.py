@@ -21,7 +21,7 @@ def test_benchmark_workflow_is_bounded_fan_out() -> None:
     workflow = _workflow()
     assert set(workflow["on"]) == {"schedule", "workflow_dispatch"}
     jobs = workflow["jobs"]
-    assert set(jobs) == {"prepare", "benchmark", "aggregate", "publish"}
+    assert set(jobs) == {"prepare", "benchmark", "aggregate", "publish", "cleanup"}
     benchmark = jobs["benchmark"]
     assert benchmark["needs"] == "prepare"
     assert benchmark["strategy"]["fail-fast"] == "false"
@@ -77,6 +77,8 @@ def test_result_recording_uses_monotonic_time_and_validated_action_evidence() ->
     assert '--action-result "$ACTION_RESULT"' in script
     assert '--report-path "$REPORT_PATH"' in script
     assert "--evidence-report" in script
+    assert 'REPORT_PATH="$GITHUB_WORKSPACE/target/.ai-code-quality/report.json"' in script
+    assert 'ACTION_RESULT="fail"' in script
 
 
 def test_artifacts_support_partial_reruns_without_collisions() -> None:
@@ -90,6 +92,24 @@ def test_artifacts_support_partial_reruns_without_collisions() -> None:
     assert "${{ github.run_attempt }}" not in results["with"]["pattern"]
     assert "merge-multiple" not in results["with"]
     assert "${{ github.run_attempt }}" in summary["with"]["name"]
+    assert selection["with"]["retention-days"] == "1"
+    assert (
+        _step_named(jobs["benchmark"]["steps"], "Upload benchmark result")["with"]["retention-days"]
+        == "1"
+    )
+    assert summary["with"]["retention-days"] == "1"
+
+
+def test_cleanup_deletes_artifacts_only_after_successful_publication() -> None:
+    cleanup = _workflow()["jobs"]["cleanup"]
+
+    assert cleanup["needs"] == "publish"
+    assert cleanup["if"] == "${{ needs.publish.result == 'success' }}"
+    assert cleanup["permissions"] == {"actions": "write", "contents": "read"}
+    script = "\n".join(step.get("run", "") for step in cleanup["steps"] if "run" in step)
+    assert "scripts/cleanup_benchmark_artifacts.py" in script
+    assert '--repository "${{ github.repository }}"' in script
+    assert '--run-id "${{ github.run_id }}"' in script
 
 
 def test_publication_rechecks_lineage_after_each_remote_refresh() -> None:

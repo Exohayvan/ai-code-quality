@@ -51,7 +51,7 @@ jobs:
           path: benchmark-selection.json
           overwrite: true
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 1
 
   benchmark:
     name: ${{ matrix.language }} / ${{ matrix.repository }} / ${{ matrix.profile }}
@@ -111,6 +111,13 @@ jobs:
           REPORT_PATH: ${{ steps.quality.outputs.report-path }}
         run: |
           set -euo pipefail
+          fallback_report="$GITHUB_WORKSPACE/target/.ai-code-quality/report.json"
+          if [[ -z "$REPORT_PATH" && -f "$fallback_report" ]]; then
+            REPORT_PATH="$GITHUB_WORKSPACE/target/.ai-code-quality/report.json"
+            if [[ -z "$ACTION_RESULT" ]]; then
+              ACTION_RESULT="fail"
+            fi
+          fi
           python action/scripts/benchmark_profiles.py record \
             --cell-id "${{ matrix.cell_id }}" \
             --language "${{ matrix.language }}" \
@@ -137,7 +144,7 @@ jobs:
           name: benchmark-cell-${{ github.run_attempt }}-${{ matrix.cell_id }}
           path: benchmark-result/${{ matrix.cell_id }}
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 1
 
   aggregate:
     name: Aggregate runtime badges
@@ -188,7 +195,7 @@ jobs:
             benchmark-summary.json
             benchmark-badges/*.json
           if-no-files-found: error
-          retention-days: 90
+          retention-days: 1
 
   publish:
     name: Publish runtime badges
@@ -236,3 +243,26 @@ jobs:
             echo "Push attempt $attempt failed; retrying after refresh" >&2
           done
           exit 1
+
+  cleanup:
+    name: Delete temporary benchmark artifacts
+    needs: publish
+    if: ${{ needs.publish.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Check out cleanup script
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Delete artifacts for successful run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/cleanup_benchmark_artifacts.py \
+            --repository "${{ github.repository }}" \
+            --run-id "${{ github.run_id }}"
