@@ -34,6 +34,22 @@ def test_parse_lizard_csv_rejects_malformed_rows(tmp_path: Path) -> None:
         parse_lizard_csv(report)
 
 
+def test_parse_lizard_csv_normalizes_global_zero_based_range(tmp_path: Path) -> None:
+    report = tmp_path / "lizard.csv"
+    report.write_text(
+        '1098,246,8995,0,3379,"*global*@0-3378@tests/runtests.pl",'
+        '"tests/runtests.pl","*global*","*global*",0,3378\n'
+    )
+
+    result = parse_lizard_csv(report)
+
+    assert len(result) == 1
+    assert result[0].symbol == "*global*"
+    assert result[0].start_line == 1
+    assert result[0].end_line == 3379
+    assert result[0].length == 3379
+
+
 def test_run_lizard_scans_multiple_languages_and_ignores_build_output(tmp_path: Path) -> None:
     (tmp_path / "src").mkdir()
     (tmp_path / "build").mkdir()
@@ -56,9 +72,7 @@ def test_run_lizard_scans_multiple_languages_and_ignores_build_output(tmp_path: 
 }
 """
     )
-    (tmp_path / "build" / "generated.py").write_text(
-        "def generated():\n    return 1\n"
-    )
+    (tmp_path / "build" / "generated.py").write_text("def generated():\n    return 1\n")
 
     result = run_lizard(tmp_path)
 

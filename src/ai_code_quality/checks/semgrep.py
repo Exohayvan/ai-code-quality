@@ -24,8 +24,63 @@ def _positive_int(value: Any, label: str) -> int:
     return value
 
 
+def _partial_coordinate(value: object, label: str) -> tuple[int, int, int]:
+    if not isinstance(value, dict) or set(value) != {"line", "col", "offset"}:
+        raise ValueError(f"Invalid Semgrep partial parsing {label}")
+    line = _positive_int(value["line"], f"partial parsing {label} line")
+    column = _positive_int(value["col"], f"partial parsing {label} column")
+    offset = value["offset"]
+    if not isinstance(offset, int) or isinstance(offset, bool) or offset < 0:
+        raise ValueError(f"Invalid Semgrep partial parsing {label} offset")
+    return line, column, offset
+
+
+def _partial_parsing_coordinates(value: dict[str, Any], path: str) -> tuple[int, int, int, int]:
+    error_type = value.get("type")
+    spans = value.get("spans")
+    if (
+        set(value) != {"code", "level", "type", "message", "path", "spans"}
+        or not isinstance(error_type, list)
+        or len(error_type) != 2
+        or error_type[0] != "PartialParsing"
+        or not isinstance(error_type[1], list)
+        or len(error_type[1]) != 1
+        or not isinstance(spans, list)
+        or len(spans) != 1
+    ):
+        raise ValueError("Invalid Semgrep partial parsing metadata")
+    location = error_type[1][0]
+    span = spans[0]
+    if (
+        not isinstance(location, dict)
+        or set(location) != {"path", "start", "end"}
+        or not isinstance(span, dict)
+        or set(span) != {"file", "start", "end"}
+        or location["path"] != path
+        or span["file"] != path
+    ):
+        raise ValueError("Invalid Semgrep partial parsing span")
+
+    location_start = _partial_coordinate(location["start"], "location start")
+    location_end = _partial_coordinate(location["end"], "location end")
+    span_start = _partial_coordinate(span["start"], "span start")
+    span_end = _partial_coordinate(span["end"], "span end")
+    if location_start != span_start or location_end != span_end:
+        raise ValueError("Invalid Semgrep partial parsing span")
+    line, column, start_offset = location_start
+    end_line, end_column, end_offset = location_end
+    if (end_line, end_column) < (line, column) or end_offset < start_offset:
+        raise ValueError("Invalid Semgrep partial parsing range")
+    return line, column, end_line, end_column
+
+
 def _syntax_error_finding(value: object) -> ToolFinding:
-    if not isinstance(value, dict) or value.get("type") != "Syntax error":
+    if not isinstance(value, dict):
+        raise ValueError("Semgrep reported scanner errors")
+    error_type = value.get("type")
+    if error_type != "Syntax error" and not (
+        isinstance(error_type, list) and error_type and error_type[0] == "PartialParsing"
+    ):
         raise ValueError("Semgrep reported scanner errors")
     if value.get("code") != 3 or value.get("level") not in {"warn", "error"}:
         raise ValueError("Invalid Semgrep syntax error metadata")
@@ -40,14 +95,21 @@ def _syntax_error_finding(value: object) -> ToolFinding:
     if not separator or not line_text.isdecimal():
         raise ValueError("Invalid Semgrep syntax error line")
     line = _positive_int(int(line_text), "syntax error line")
+    column = 1
+    end_line = line
+    end_column = 1
+    if value.get("type") != "Syntax error":
+        line, column, end_line, end_column = _partial_parsing_coordinates(value, path)
+        if line != int(line_text):
+            raise ValueError("Invalid Semgrep partial parsing message line")
     return ToolFinding(
         tool="semgrep",
         rule="semgrep.syntax-error",
         path=normalize_scanner_path(path),
         line=line,
-        column=1,
-        end_line=line,
-        end_column=1,
+        column=column,
+        end_line=end_line,
+        end_column=end_column,
         message=message,
         severity="error",
     )
@@ -138,6 +200,12 @@ def run_semgrep(repository: Path, policy: str) -> tuple[ToolFinding, ...]:
             "off",
             "--disable-version-check",
             "--oss-only",
+            "--jobs",
+            "1",
+            "--timeout",
+            "0",
+            "--timeout-threshold",
+            "0",
         ]
         for directory in DEFAULT_EXCLUDED_DIRECTORIES:
             command.extend(("--exclude", directory))

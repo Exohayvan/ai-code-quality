@@ -342,9 +342,12 @@ evidence from every attempt in the same run, and select the newest valid attempt
 duplicate records within one attempt and records from a future attempt are rejected. Publication
 records the `(run_id, run_attempt)` lineage beside the badges and rechecks it against `main` after
 every remote refresh, so rerunning an older workflow cannot roll back newer results. Pull requests
-cannot publish the benchmark, and concurrent benchmark runs are serialized. The result ledger and
-generated badges are also retained as workflow artifacts. Corpus membership is maintained in
-`.github/benchmarks/repositories.json`; changes to it are ordinary reviewed repository changes.
+cannot publish the benchmark, and concurrent benchmark runs are serialized. Cell and aggregate
+artifacts use one-day retention so failed runs remain available for a bounded partial rerun. After a
+successful publication, a least-privilege cleanup job immediately deletes every temporary artifact
+from that run; the committed Shields endpoint JSON is the durable output. Corpus membership is
+maintained in `.github/benchmarks/repositories.json`; changes to it are ordinary reviewed repository
+changes.
 
 ## License
 

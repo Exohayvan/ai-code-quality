@@ -84,6 +84,91 @@ def test_parse_semgrep_json_preserves_source_syntax_errors_as_blocking_findings(
     )
 
 
+def test_parse_semgrep_json_preserves_partial_parsing_spans_as_blocking_findings() -> None:
+    location = {
+        "path": "src/compiler/types.ts",
+        "start": {"line": 6314, "col": 30, "offset": 0},
+        "end": {"line": 6314, "col": 37, "offset": 7},
+    }
+    payload = json.dumps(
+        {
+            "version": "1.172.0",
+            "results": [],
+            "errors": [
+                {
+                    "code": 3,
+                    "level": "warn",
+                    "type": ["PartialParsing", [location]],
+                    "message": (
+                        "Syntax error at line src/compiler/types.ts:6314:\n"
+                        " `symbol:` was unexpected"
+                    ),
+                    "path": "src/compiler/types.ts",
+                    "spans": [
+                        {
+                            "file": location["path"],
+                            "start": location["start"],
+                            "end": location["end"],
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+
+    findings = parse_semgrep_json(payload)
+
+    assert len(findings) == 1
+    assert findings[0].rule == "semgrep.syntax-error"
+    assert findings[0].path == "src/compiler/types.ts"
+    assert findings[0].line == 6314
+    assert findings[0].column == 30
+    assert findings[0].end_line == 6314
+    assert findings[0].end_column == 37
+    assert findings[0].severity == "error"
+
+
+@pytest.mark.parametrize(
+    ("field", "malformed"),
+    (("line", 6314.0), ("offset", False)),
+)
+def test_parse_semgrep_json_rejects_type_mismatched_partial_parsing_spans(
+    field: str, malformed: object
+) -> None:
+    location = {
+        "path": "src/compiler/types.ts",
+        "start": {"line": 6314, "col": 30, "offset": 0},
+        "end": {"line": 6314, "col": 37, "offset": 7},
+    }
+    span_start = dict(location["start"])
+    span_start[field] = malformed
+    payload = json.dumps(
+        {
+            "version": "1.172.0",
+            "results": [],
+            "errors": [
+                {
+                    "code": 3,
+                    "level": "warn",
+                    "type": ["PartialParsing", [location]],
+                    "message": "Syntax error at line src/compiler/types.ts:6314:\n bad syntax",
+                    "path": location["path"],
+                    "spans": [
+                        {
+                            "file": location["path"],
+                            "start": span_start,
+                            "end": location["end"],
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+
+    with pytest.raises(ValueError, match="partial parsing"):
+        parse_semgrep_json(payload)
+
+
 def test_parse_semgrep_json_fails_closed_on_engine_errors() -> None:
     payload = json.dumps({"version": "1.172.0", "results": [], "errors": [{"message": "bad rule"}]})
 
@@ -125,6 +210,26 @@ def test_run_semgrep_accepts_strict_exit_for_source_syntax_error(
     assert findings[0].rule == "semgrep.syntax-error"
     assert findings[0].path == "broken.py"
     assert findings[0].line == 9
+
+
+def test_run_semgrep_disables_internal_timeouts_and_oversubscription(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    payload = json.dumps({"version": "1.172.0", "results": [], "errors": []})
+    observed: dict[str, list[str]] = {}
+
+    def fake_run(command: list[str], **kwargs) -> CommandOutput:
+        observed["command"] = command
+        return CommandOutput(payload, "", 0)
+
+    monkeypatch.setattr(semgrep_check, "resolve_command", lambda name: name)
+    monkeypatch.setattr(semgrep_check, "run_command_capture", fake_run)
+
+    assert run_semgrep(tmp_path, "strict") == ()
+    command = observed["command"]
+    assert command[command.index("--jobs") + 1] == "1"
+    assert command[command.index("--timeout") + 1] == "0"
+    assert command[command.index("--timeout-threshold") + 1] == "0"
 
 
 def test_run_semgrep_rejects_unexplained_strict_exit(
@@ -231,8 +336,7 @@ def test_parse_typos_jsonl_converts_utf8_byte_offsets_to_character_columns(
 
 def test_parse_typos_jsonl_normalizes_filename_typos_without_line_numbers() -> None:
     findings = parse_typos_jsonl(
-        '{"type":"typo","path":"./teh-file.txt",'
-        '"byte_offset":0,"typo":"teh","corrections":["the"]}'
+        '{"type":"typo","path":"./teh-file.txt","byte_offset":0,"typo":"teh","corrections":["the"]}'
     )
 
     assert findings[0].path == "teh-file.txt"
