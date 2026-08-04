@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from urllib.parse import quote
 
 import yaml
 
 ROOT = Path(__file__).parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "profile-benchmarks.yml"
+README = ROOT / "README.md"
 
 
 def _workflow():
@@ -15,6 +17,18 @@ def _workflow():
 
 def _step_named(steps, name: str):
     return next(step for step in steps if step.get("name") == name)
+
+
+def test_readme_runtime_badges_use_main_normalized_p95_endpoints() -> None:
+    readme = README.read_text(encoding="utf-8")
+    for profile in ("minimal", "basic", "standard", "strict", "hardened", "maximum"):
+        raw_endpoint = (
+            "https://raw.githubusercontent.com/Exohayvan/ai-code-quality/main/.github/badges/"
+            f"runtime-{profile}-per-million-tokens-p95.json"
+        )
+        shields_endpoint = f"https://img.shields.io/endpoint?url={quote(raw_endpoint, safe='')}"
+        assert shields_endpoint in readme
+    assert "runtime-none-per-million-tokens" not in readme
 
 
 def test_benchmark_workflow_is_bounded_fan_out() -> None:

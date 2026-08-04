@@ -2,6 +2,16 @@
 
 Profiled repository-wide complexity, duplication, security, lint, and typo gates for multi-language projects.
 
+[![minimal p95 runtime per 1M tokens](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FExohayvan%2Fai-code-quality%2Fmain%2F.github%2Fbadges%2Fruntime-minimal-per-million-tokens-p95.json)](#profile-runtime-benchmarks)
+[![basic p95 runtime per 1M tokens](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FExohayvan%2Fai-code-quality%2Fmain%2F.github%2Fbadges%2Fruntime-basic-per-million-tokens-p95.json)](#profile-runtime-benchmarks)
+[![standard p95 runtime per 1M tokens](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FExohayvan%2Fai-code-quality%2Fmain%2F.github%2Fbadges%2Fruntime-standard-per-million-tokens-p95.json)](#profile-runtime-benchmarks)<br>
+[![strict p95 runtime per 1M tokens](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FExohayvan%2Fai-code-quality%2Fmain%2F.github%2Fbadges%2Fruntime-strict-per-million-tokens-p95.json)](#profile-runtime-benchmarks)
+[![hardened p95 runtime per 1M tokens](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FExohayvan%2Fai-code-quality%2Fmain%2F.github%2Fbadges%2Fruntime-hardened-per-million-tokens-p95.json)](#profile-runtime-benchmarks)
+[![maximum p95 runtime per 1M tokens](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FExohayvan%2Fai-code-quality%2Fmain%2F.github%2Fbadges%2Fruntime-maximum-per-million-tokens-p95.json)](#profile-runtime-benchmarks)
+
+These cold-runtime badges show each token-bearing profile's nearest-rank p95 seconds per one million
+jscpd tokens. The `none` profile is omitted because it does not run jscpd and has no token denominator.
+
 ## Quick start
 
 ```yaml
