@@ -128,6 +128,80 @@ def test_parse_semgrep_json_preserves_partial_parsing_spans_as_blocking_findings
     assert findings[0].severity == "error"
 
 
+def test_parse_semgrep_json_preserves_every_partial_parsing_span() -> None:
+    locations = [
+        {
+            "path": "src/compiler/types.ts",
+            "start": {"line": 240, "col": 10, "offset": 0},
+            "end": {"line": 240, "col": 30, "offset": 20},
+        },
+        {
+            "path": "src/compiler/types.ts",
+            "start": {"line": 298, "col": 6, "offset": 0},
+            "end": {"line": 307, "col": 7, "offset": 259},
+        },
+    ]
+    payload = json.dumps(
+        {
+            "version": "1.172.0",
+            "results": [],
+            "errors": [
+                {
+                    "code": 3,
+                    "level": "warn",
+                    "type": ["PartialParsing", locations],
+                    "message": "Syntax error at line src/compiler/types.ts:240:\n bad syntax",
+                    "path": "src/compiler/types.ts",
+                    "spans": [
+                        {"file": item["path"], "start": item["start"], "end": item["end"]}
+                        for item in locations
+                    ],
+                }
+            ],
+        }
+    )
+
+    findings = parse_semgrep_json(payload)
+
+    assert [(item.line, item.column, item.end_line, item.end_column) for item in findings] == [
+        (240, 10, 240, 30),
+        (298, 6, 307, 7),
+    ]
+
+
+def test_parse_semgrep_json_rejects_unpaired_partial_parsing_spans() -> None:
+    location = {
+        "path": "src/compiler/types.ts",
+        "start": {"line": 240, "col": 10, "offset": 0},
+        "end": {"line": 240, "col": 30, "offset": 20},
+    }
+    payload = json.dumps(
+        {
+            "version": "1.172.0",
+            "results": [],
+            "errors": [
+                {
+                    "code": 3,
+                    "level": "warn",
+                    "type": ["PartialParsing", [location, location]],
+                    "message": "Syntax error at line src/compiler/types.ts:240:\n bad syntax",
+                    "path": location["path"],
+                    "spans": [
+                        {
+                            "file": location["path"],
+                            "start": location["start"],
+                            "end": location["end"],
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+
+    with pytest.raises(ValueError, match="partial parsing metadata"):
+        parse_semgrep_json(payload)
+
+
 @pytest.mark.parametrize(
     ("field", "malformed"),
     (("line", 6314.0), ("offset", False)),

@@ -35,7 +35,9 @@ def _partial_coordinate(value: object, label: str) -> tuple[int, int, int]:
     return line, column, offset
 
 
-def _partial_parsing_coordinates(value: dict[str, Any], path: str) -> tuple[int, int, int, int]:
+def _partial_parsing_coordinates(
+    value: dict[str, Any], path: str
+) -> tuple[tuple[int, int, int, int], ...]:
     error_type = value.get("type")
     spans = value.get("spans")
     if (
@@ -44,37 +46,39 @@ def _partial_parsing_coordinates(value: dict[str, Any], path: str) -> tuple[int,
         or len(error_type) != 2
         or error_type[0] != "PartialParsing"
         or not isinstance(error_type[1], list)
-        or len(error_type[1]) != 1
+        or not error_type[1]
         or not isinstance(spans, list)
-        or len(spans) != 1
+        or len(spans) != len(error_type[1])
     ):
         raise ValueError("Invalid Semgrep partial parsing metadata")
-    location = error_type[1][0]
-    span = spans[0]
-    if (
-        not isinstance(location, dict)
-        or set(location) != {"path", "start", "end"}
-        or not isinstance(span, dict)
-        or set(span) != {"file", "start", "end"}
-        or location["path"] != path
-        or span["file"] != path
-    ):
-        raise ValueError("Invalid Semgrep partial parsing span")
 
-    location_start = _partial_coordinate(location["start"], "location start")
-    location_end = _partial_coordinate(location["end"], "location end")
-    span_start = _partial_coordinate(span["start"], "span start")
-    span_end = _partial_coordinate(span["end"], "span end")
-    if location_start != span_start or location_end != span_end:
-        raise ValueError("Invalid Semgrep partial parsing span")
-    line, column, start_offset = location_start
-    end_line, end_column, end_offset = location_end
-    if (end_line, end_column) < (line, column) or end_offset < start_offset:
-        raise ValueError("Invalid Semgrep partial parsing range")
-    return line, column, end_line, end_column
+    coordinates = []
+    for location, span in zip(error_type[1], spans, strict=True):
+        if (
+            not isinstance(location, dict)
+            or set(location) != {"path", "start", "end"}
+            or not isinstance(span, dict)
+            or set(span) != {"file", "start", "end"}
+            or location["path"] != path
+            or span["file"] != path
+        ):
+            raise ValueError("Invalid Semgrep partial parsing span")
+
+        location_start = _partial_coordinate(location["start"], "location start")
+        location_end = _partial_coordinate(location["end"], "location end")
+        span_start = _partial_coordinate(span["start"], "span start")
+        span_end = _partial_coordinate(span["end"], "span end")
+        if location_start != span_start or location_end != span_end:
+            raise ValueError("Invalid Semgrep partial parsing span")
+        line, column, start_offset = location_start
+        end_line, end_column, end_offset = location_end
+        if (end_line, end_column) < (line, column) or end_offset < start_offset:
+            raise ValueError("Invalid Semgrep partial parsing range")
+        coordinates.append((line, column, end_line, end_column))
+    return tuple(coordinates)
 
 
-def _syntax_error_finding(value: object) -> ToolFinding:
+def _syntax_error_findings(value: object) -> tuple[ToolFinding, ...]:
     if not isinstance(value, dict):
         raise ValueError("Semgrep reported scanner errors")
     error_type = value.get("type")
@@ -95,23 +99,24 @@ def _syntax_error_finding(value: object) -> ToolFinding:
     if not separator or not line_text.isdecimal():
         raise ValueError("Invalid Semgrep syntax error line")
     line = _positive_int(int(line_text), "syntax error line")
-    column = 1
-    end_line = line
-    end_column = 1
+    coordinates = ((line, 1, line, 1),)
     if value.get("type") != "Syntax error":
-        line, column, end_line, end_column = _partial_parsing_coordinates(value, path)
-        if line != int(line_text):
+        coordinates = _partial_parsing_coordinates(value, path)
+        if coordinates[0][0] != int(line_text):
             raise ValueError("Invalid Semgrep partial parsing message line")
-    return ToolFinding(
-        tool="semgrep",
-        rule="semgrep.syntax-error",
-        path=normalize_scanner_path(path),
-        line=line,
-        column=column,
-        end_line=end_line,
-        end_column=end_column,
-        message=message,
-        severity="error",
+    return tuple(
+        ToolFinding(
+            tool="semgrep",
+            rule="semgrep.syntax-error",
+            path=normalize_scanner_path(path),
+            line=coordinate[0],
+            column=coordinate[1],
+            end_line=coordinate[2],
+            end_column=coordinate[3],
+            message=message,
+            severity="error",
+        )
+        for coordinate in coordinates
     )
 
 
@@ -127,7 +132,7 @@ def parse_semgrep_json(payload: str) -> tuple[ToolFinding, ...]:
     errors = document.get("errors")
     if not isinstance(errors, list):
         raise ValueError("Invalid Semgrep errors collection")
-    error_findings = [_syntax_error_finding(error) for error in errors]
+    error_findings = [finding for error in errors for finding in _syntax_error_findings(error)]
     results = document.get("results")
     if not isinstance(results, list):
         raise ValueError("Invalid Semgrep results collection")
