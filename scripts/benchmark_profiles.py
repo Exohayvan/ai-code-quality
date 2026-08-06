@@ -32,6 +32,8 @@ PROFILE_CONTRACT: Final[dict[str, dict[str, object]]] = {
         "arguments": None,
         "policy": None,
         "typos": False,
+        "lint": None,
+        "coverage": None,
     },
     "minimal": {
         "duplication": 20.0,
@@ -40,6 +42,8 @@ PROFILE_CONTRACT: Final[dict[str, dict[str, object]]] = {
         "arguments": 10,
         "policy": None,
         "typos": True,
+        "lint": "minimal",
+        "coverage": 20.0,
     },
     "basic": {
         "duplication": 15.0,
@@ -48,6 +52,8 @@ PROFILE_CONTRACT: Final[dict[str, dict[str, object]]] = {
         "arguments": 9,
         "policy": "basic",
         "typos": True,
+        "lint": "basic",
+        "coverage": 40.0,
     },
     "standard": {
         "duplication": 10.0,
@@ -56,6 +62,8 @@ PROFILE_CONTRACT: Final[dict[str, dict[str, object]]] = {
         "arguments": 7,
         "policy": "standard",
         "typos": True,
+        "lint": "standard",
+        "coverage": 60.0,
     },
     "strict": {
         "duplication": 0.0,
@@ -64,6 +72,8 @@ PROFILE_CONTRACT: Final[dict[str, dict[str, object]]] = {
         "arguments": 6,
         "policy": "strict",
         "typos": True,
+        "lint": "strict",
+        "coverage": 80.0,
     },
     "hardened": {
         "duplication": 0.0,
@@ -72,6 +82,8 @@ PROFILE_CONTRACT: Final[dict[str, dict[str, object]]] = {
         "arguments": 5,
         "policy": "hardened",
         "typos": True,
+        "lint": "hardened",
+        "coverage": 90.0,
     },
     "maximum": {
         "duplication": 0.0,
@@ -80,6 +92,8 @@ PROFILE_CONTRACT: Final[dict[str, dict[str, object]]] = {
         "arguments": 4,
         "policy": "maximum",
         "typos": True,
+        "lint": "maximum",
+        "coverage": 95.0,
     },
 }
 REPOSITORY_PATTERN: Final = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
@@ -127,10 +141,22 @@ REPORT_CHECKS: Final = frozenset(
         "yamllint",
         "markdownlint",
         "typos",
+        "lint",
+        "coverage",
     }
 )
 REPORT_TOOLS: Final = frozenset(
-    {"excluded_directories", "jscpd", "lizard", "semgrep", "yamllint", "markdownlint", "typos"}
+    {
+        "excluded_directories",
+        "jscpd",
+        "lizard",
+        "semgrep",
+        "yamllint",
+        "markdownlint",
+        "typos",
+        "general_lint",
+        "coverage",
+    }
 )
 REPORT_FIELDS: Final = frozenset(
     {
@@ -185,8 +211,24 @@ CHECK_FIELDS: Final[dict[str, frozenset[str]]] = {
                 "findings",
             }
         )
-        for name in ("semgrep", "yamllint", "markdownlint", "typos")
+        for name in ("semgrep", "yamllint", "markdownlint", "typos", "lint")
     },
+    "coverage": frozenset(
+        {
+            "status",
+            "blocking",
+            "observed_percent",
+            "required_percent",
+            "target_percent",
+            "debt",
+            "allowed_debt",
+            "covered_units",
+            "total_units",
+            "detected_languages",
+            "files",
+            "reports",
+        }
+    ),
 }
 TOOL_FIELDS: Final = {
     "jscpd": frozenset({"version", "minimum_lines", "minimum_tokens", "comments_ignored"}),
@@ -195,6 +237,10 @@ TOOL_FIELDS: Final = {
     "yamllint": frozenset({"version", "policy"}),
     "markdownlint": frozenset({"version", "policy"}),
     "typos": frozenset({"version", "enabled"}),
+    "general_lint": frozenset(
+        {"policy", "ruff_version", "oxlint_version", "semgrep_version"}
+    ),
+    "coverage": frozenset({"target_percent", "accepted_formats"}),
 }
 CHECK_TYPES: Final = {
     "duplication": {
@@ -238,7 +284,21 @@ CHECK_TYPES: Final = {
             "immediate_count": "integer",
             "findings": "list",
         }
-        for name in ("semgrep", "yamllint", "markdownlint", "typos")
+        for name in ("semgrep", "yamllint", "markdownlint", "typos", "lint")
+    },
+    "coverage": {
+        "status": "status",
+        "blocking": "bool",
+        "observed_percent": "optional-number",
+        "required_percent": "optional-number",
+        "target_percent": "optional-number",
+        "debt": "number",
+        "allowed_debt": "optional-number",
+        "covered_units": "integer",
+        "total_units": "integer",
+        "detected_languages": "list",
+        "files": "list",
+        "reports": "list",
     },
 }
 TOOL_TYPES: Final = {
@@ -254,6 +314,13 @@ TOOL_TYPES: Final = {
         for name in ("semgrep", "yamllint", "markdownlint")
     },
     "typos": {"version": "string", "enabled": "bool"},
+    "general_lint": {
+        "policy": "optional-string",
+        "ruff_version": "string",
+        "oxlint_version": "string",
+        "semgrep_version": "string",
+    },
+    "coverage": {"target_percent": "optional-number", "accepted_formats": "list"},
 }
 FUNCTION_TYPES: Final = {
     "path": "string",
@@ -285,6 +352,7 @@ TOOL_SEVERITIES: Final = {
     "yamllint": frozenset({"error", "warning"}),
     "markdownlint": frozenset({"error", "warning"}),
     "typos": frozenset({"warning"}),
+    "lint": frozenset({"error", "warning", "info"}),
 }
 Resolver = Callable[[str], tuple[str, str]]
 
@@ -983,7 +1051,7 @@ def _valid_report_identity(report: dict[str, Any], profile: str) -> bool:
     enforcement = report.get("enforcement")
     return (
         set(report) == REPORT_FIELDS
-        and report.get("schema_version") == 2
+        and report.get("schema_version") == 3
         and report.get("profile") == profile
         and report.get("verdict") in {"pass", "fail"}
         and report.get("quality_verdict") in {"pass", "fail"}
@@ -1255,12 +1323,16 @@ def _valid_tool_finding(name: str, finding: object) -> bool:
     assert isinstance(finding, dict)
     return all(
         (
-            finding["tool"] == name,
+            (
+                finding["tool"] in {"ruff", "oxlint", "semgrep-lint"}
+                if name == "lint"
+                else finding["tool"] == name
+            ),
             _safe_report_path(finding["path"]),
             finding["severity"] in TOOL_SEVERITIES[name],
             finding["location"] in {"path", "source"},
             name == "typos" or finding["location"] == "source",
-            name == "typos" or not finding["suggestions"],
+            name in {"typos", "lint"} or not finding["suggestions"],
             finding["line"] >= 1,
             finding["column"] >= 1,
             finding["end_line"] >= 1,
@@ -1294,7 +1366,13 @@ def _valid_finding_metrics(name: str, check: dict[str, Any], enabled: bool) -> b
     )
     expected_count = len(findings) - expected_immediate
     finding_keys = [
-        (finding["path"], finding["line"], finding["column"], finding["rule"])
+        (
+            finding["path"],
+            finding["line"],
+            finding["column"],
+            *((finding["tool"],) if name == "lint" else ()),
+            finding["rule"],
+        )
         for finding in findings
     ]
     failed = expected_immediate > 0 or expected_count > 0
@@ -1306,6 +1384,111 @@ def _valid_finding_metrics(name: str, check: dict[str, Any], enabled: bool) -> b
             finding_keys == sorted(finding_keys),
             check["status"] == _expected_check_status(failed),
             findings_valid,
+        )
+    )
+
+
+def _valid_coverage_file(value: object) -> bool:
+    if not isinstance(value, dict) or set(value) != {
+        "path",
+        "language",
+        "covered_units",
+        "total_units",
+    }:
+        return False
+    return all(
+        (
+            _safe_report_path(value["path"]),
+            isinstance(value["language"], str) and bool(value["language"]),
+            _is_integer(value["covered_units"]),
+            _is_integer(value["total_units"]),
+            value["covered_units"] <= value["total_units"],
+        )
+    )
+
+
+def _valid_coverage_report(value: object) -> bool:
+    if not isinstance(value, dict) or set(value) != {
+        "path",
+        "format",
+        "covered_units",
+        "total_units",
+        "languages",
+        "files",
+    }:
+        return False
+    languages = value["languages"]
+    files = value["files"]
+    return all(
+        (
+            _safe_report_path(value["path"]),
+            value["format"]
+            in {
+                "coverage.py-json",
+                "istanbul-json-summary",
+                "lcov",
+                "cobertura-xml",
+                "jacoco-xml",
+                "go-coverprofile",
+            },
+            _is_integer(value["covered_units"]),
+            _is_integer(value["total_units"]),
+            value["covered_units"] <= value["total_units"],
+            isinstance(languages, list),
+            languages == sorted(set(languages)),
+            all(isinstance(item, str) and item for item in languages),
+            isinstance(files, list),
+            all(_valid_coverage_file(item) for item in files),
+            value["covered_units"] == sum(item["covered_units"] for item in files),
+            value["total_units"] == sum(item["total_units"] for item in files),
+        )
+    )
+
+
+def _valid_coverage_metrics(check: dict[str, Any], target: float | None) -> bool:
+    files = check["files"]
+    reports = check["reports"]
+    languages = check["detected_languages"]
+    if target is None:
+        return all(
+            (
+                check["status"] == "skipped",
+                check["observed_percent"] is None,
+                check["required_percent"] is None,
+                check["target_percent"] is None,
+                check["debt"] == 0,
+                check["allowed_debt"] is None,
+                check["covered_units"] == 0,
+                check["total_units"] == 0,
+                not languages,
+                not files,
+                not reports,
+            )
+        )
+    if not isinstance(files, list) or not isinstance(reports, list):
+        return False
+    covered = check["covered_units"]
+    total = check["total_units"]
+    observed = check["observed_percent"]
+    if not _is_integer(covered) or not _is_integer(total) or not _is_number(observed):
+        return False
+    expected = covered / total * 100 if total else 0.0
+    return all(
+        (
+            isinstance(languages, list),
+            languages == sorted(set(languages)),
+            all(isinstance(item, str) and item for item in languages),
+            all(_valid_coverage_file(item) for item in files),
+            all(_valid_coverage_report(item) for item in reports),
+            covered == sum(item["covered_units"] for item in files),
+            total == sum(item["total_units"] for item in files),
+            0 <= covered <= total,
+            math.isclose(observed, expected, rel_tol=1e-12, abs_tol=0.005),
+            check["target_percent"] == target,
+            check["required_percent"] == target,
+            math.isclose(check["debt"], max(0.0, target - observed), abs_tol=1e-9),
+            check["allowed_debt"] == 0,
+            check["status"] == _expected_check_status(observed + 1e-9 < target),
         )
     )
 
@@ -1416,6 +1599,10 @@ def _valid_check_metrics(report: dict[str, Any], profile: str) -> bool:
             _valid_finding_metrics("yamllint", checks["yamllint"], policy_enabled),
             _valid_finding_metrics("markdownlint", checks["markdownlint"], policy_enabled),
             _valid_finding_metrics("typos", checks["typos"], bool(contract["typos"])),
+            _valid_finding_metrics("lint", checks["lint"], contract["lint"] is not None),
+            _valid_coverage_metrics(
+                checks["coverage"], cast(float | None, contract["coverage"])
+            ),
         )
     )
 
@@ -1442,6 +1629,17 @@ def _valid_profile_tools(report: dict[str, Any], profile: str) -> bool:
     return (
         all(tools[name]["policy"] == expected_policy for name in scanners)
         and tools["typos"]["enabled"] == contract["typos"]
+        and tools["general_lint"]["policy"] == contract["lint"]
+        and tools["coverage"]["target_percent"] == contract["coverage"]
+        and tools["coverage"]["accepted_formats"]
+        == [
+            "coverage.py-json",
+            "istanbul-json-summary",
+            "lcov",
+            "cobertura-xml",
+            "jacoco-xml",
+            "go-coverprofile",
+        ]
     )
 
 

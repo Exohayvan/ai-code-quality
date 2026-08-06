@@ -45,13 +45,25 @@ def test_scan_repository_only_runs_tools_enabled_by_profile(tmp_path: Path, monk
     monkeypatch.setattr(
         cli, "run_markdownlint", lambda path, policy: calls.append("markdownlint") or ()
     )
+    monkeypatch.setattr(cli, "detect_languages", lambda path: ("python", "typescript"))
+    monkeypatch.setattr(
+        cli,
+        "run_lint",
+        lambda path, policy, languages: calls.append("lint") or (),
+    )
+    monkeypatch.setattr(
+        cli,
+        "run_coverage",
+        lambda path, languages, command=None: calls.append("coverage") or None,
+    )
 
     result = cli.scan_repository(tmp_path, get_profile("minimal"))
 
-    assert calls == ["typos"]
+    assert set(calls) == {"typos", "lint", "coverage"}
     assert result.semgrep == ()
     assert result.yamllint == ()
     assert result.markdownlint == ()
+    assert result.lint == ()
 
 
 def test_none_profile_runs_without_scanner_tools(tmp_path: Path) -> None:
@@ -200,3 +212,86 @@ def test_baseline_comparison_scans_the_same_subdirectory(tmp_path: Path) -> None
     report = json.loads((service / ".ai-code-quality" / "report.json").read_text())
     assert report["baseline"]["complexity_debt"] == 0
     assert report["checks"]["complexity"]["debt"] == 2
+
+
+def test_coverage_command_runs_in_current_and_baseline_worktrees(tmp_path: Path) -> None:
+    repository = tmp_path / "coverage-repository"
+    repository.mkdir()
+    git(repository, "init", "-b", "main")
+    git(repository, "config", "user.name", "Test User")
+    git(repository, "config", "user.email", "test@example.invalid")
+    (repository / "subject.py").write_text("COVERED = 10\nTOTAL = 100\n")
+    (repository / "generate.py").write_text(
+        "import json\n"
+        "from pathlib import Path\n"
+        "values = {}\n"
+        "exec(Path('subject.py').read_text(), values)\n"
+        "summary = {\"covered_lines\": values['COVERED'], "
+        "\"num_statements\": values['TOTAL']}\n"
+        "payload = {\"files\": {\"subject.py\": {\"summary\": summary}}}\n"
+        "Path('coverage.json').write_text(json.dumps(payload))\n"
+    )
+    git(repository, "add", ".")
+    git(repository, "commit", "-m", "baseline coverage")
+    baseline = git(repository, "rev-parse", "HEAD")
+    (repository / "subject.py").write_text("COVERED = 15\nTOTAL = 100\n")
+    git(repository, "commit", "-am", "improve coverage")
+
+    result = run_cli(
+        repository,
+        "--level",
+        "minimal",
+        "--require-improvement",
+        "50",
+        "--baseline-ref",
+        baseline,
+        "--coverage-command",
+        f"{sys.executable} generate.py",
+    )
+
+    assert result.returncode == 0, result.stderr
+    report = json.loads((repository / ".ai-code-quality" / "report.json").read_text())
+    assert report["baseline"]["coverage_percent"] == 10.0
+    assert report["checks"]["coverage"]["observed_percent"] == 15.0
+    assert report["checks"]["coverage"]["required_percent"] == 15.0
+
+
+def test_improvement_requires_a_reproducible_baseline_coverage_report(
+    tmp_path: Path,
+) -> None:
+    repository = tmp_path / "repo"
+    repository.mkdir()
+    git(repository, "init")
+    git(repository, "config", "user.name", "Test")
+    git(repository, "config", "user.email", "test@example.com")
+    (repository / "subject.py").write_text("VALUE = 1\n", encoding="utf-8")
+    git(repository, "add", ".")
+    git(repository, "commit", "-m", "baseline")
+    (repository / "subject.py").write_text("VALUE = 2\n", encoding="utf-8")
+    git(repository, "add", ".")
+    git(repository, "commit", "-m", "current")
+    (repository / "coverage.json").write_text(
+        json.dumps(
+            {
+                "files": {
+                    "subject.py": {
+                        "summary": {"covered_lines": 1, "num_statements": 1}
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = run_cli(
+        repository,
+        "--level",
+        "minimal",
+        "--require-improvement",
+        "50",
+        "--baseline-ref",
+        "HEAD^",
+    )
+
+    assert result.returncode == 2
+    assert "set coverage-command" in result.stderr

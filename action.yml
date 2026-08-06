@@ -1,5 +1,5 @@
 name: AI Code Quality
-description: Profiled repository-wide complexity, duplication, security, lint, and typo gates
+description: Profiled repository-wide complexity, duplication, lint, coverage, security, and typo gates
 author: ExoHayvan
 
 branding:
@@ -21,6 +21,10 @@ inputs:
     default: .
   baseline-ref:
     description: Explicit Git ref for baseline comparisons
+    required: false
+    default: ""
+  coverage-command:
+    description: Command that generates supported coverage reports in current and baseline worktrees
     required: false
     default: ""
   repair-limit:
@@ -63,6 +67,12 @@ outputs:
   typo-findings:
     description: Current typo finding count
     value: ${{ steps.quality.outputs.typo-findings }}
+  lint-findings:
+    description: Current general multi-language lint finding count
+    value: ${{ steps.quality.outputs.lint-findings }}
+  coverage-percent:
+    description: Current aggregate test coverage percentage
+    value: ${{ steps.quality.outputs.coverage-percent }}
   report-path:
     description: Absolute path to the complete JSON report
     value: ${{ steps.quality.outputs.report-path }}
@@ -115,6 +125,7 @@ runs:
           --disable-pip-version-check \
           --no-input \
           "lizard==1.23.0" \
+          "ruff==0.16.1" \
           "semgrep==1.172.0" \
           "yamllint==1.38.0"
         "$quality_python" -m pip install \
@@ -138,7 +149,8 @@ runs:
           --no-audit \
           --no-fund \
           --no-save \
-          "markdownlint-cli@0.49.1"
+          "markdownlint-cli@0.49.1" \
+          "oxlint@1.77.0"
         "$quality_python" -m ai_code_quality.install_typos "$quality_binary_directory"
         printf 'AI_CODE_QUALITY_PYTHON=%s\n' "$quality_python" >> "$GITHUB_ENV"
         printf '%s\n' \
@@ -154,6 +166,7 @@ runs:
         INPUT_REQUIRE_IMPROVEMENT: ${{ inputs.require-improvement }}
         INPUT_PATH: ${{ inputs.path }}
         INPUT_BASELINE_REF: ${{ inputs.baseline-ref }}
+        INPUT_COVERAGE_COMMAND: ${{ inputs.coverage-command }}
         INPUT_REPAIR_LIMIT: ${{ inputs.repair-limit }}
         INPUT_ANNOTATION_LIMIT: ${{ inputs.annotation-limit }}
       run: |
@@ -167,5 +180,8 @@ runs:
         )
         if [[ -n "$INPUT_BASELINE_REF" ]]; then
           arguments+=(--baseline-ref "$INPUT_BASELINE_REF")
+        fi
+        if [[ -n "$INPUT_COVERAGE_COMMAND" ]]; then
+          arguments+=(--coverage-command "$INPUT_COVERAGE_COMMAND")
         fi
         "$AI_CODE_QUALITY_PYTHON" -m ai_code_quality "${arguments[@]}"

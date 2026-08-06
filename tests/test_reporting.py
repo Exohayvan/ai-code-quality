@@ -7,6 +7,9 @@ from ai_code_quality.evaluator import Enforcement, evaluate
 from ai_code_quality.models import (
     CloneFragment,
     ComplexityFunction,
+    CoverageFile,
+    CoverageReport,
+    CoverageResult,
     DuplicationClone,
     DuplicationResult,
     ScanResult,
@@ -134,7 +137,7 @@ def test_write_reports_produces_full_and_bounded_json(tmp_path: Path) -> None:
 
     assert paths.full_report == tmp_path / "report.json"
     assert paths.fix_context == tmp_path / "fix-context.json"
-    assert json.loads(paths.full_report.read_text())["schema_version"] == 2
+    assert json.loads(paths.full_report.read_text())["schema_version"] == 3
     assert json.loads(paths.fix_context.read_text())["verdict"] == "pass"
     assert "AI Code Quality: REPORT ONLY" in render_summary(reports)
 
@@ -273,6 +276,69 @@ def test_reports_expose_external_findings_in_every_surface() -> None:
     annotations = render_annotations(reports)
     assert len(annotations) == 4
     assert any("title=Semgrep" in annotation for annotation in annotations)
+
+
+def test_reports_expose_lint_and_coverage_in_every_surface() -> None:
+    lint_finding = ToolFinding(
+        tool="ruff",
+        rule="F821",
+        path="src/app.py",
+        line=3,
+        column=12,
+        end_line=3,
+        end_column=19,
+        message="Undefined name `missing`",
+        severity="error",
+    )
+    coverage_file = CoverageFile("src/app.py", "python", 7, 10)
+    coverage_report = CoverageReport(
+        "coverage.json",
+        "coverage.py-json",
+        7,
+        10,
+        ("python",),
+        (coverage_file,),
+    )
+    scan = ScanResult(
+        duplication=DuplicationResult(0.0, 0, 80, ()),
+        functions=(),
+        lint=(lint_finding,),
+        coverage=CoverageResult(
+            70.0,
+            7,
+            10,
+            (coverage_file,),
+            (coverage_report,),
+            ("python",),
+        ),
+    )
+    profile = get_profile("strict")
+    enforcement = Enforcement.absolute()
+    reports = build_reports(
+        scan=scan,
+        baseline=ScanResult(
+            duplication=DuplicationResult(0.0, 0, 80, ()),
+            functions=(),
+            coverage=CoverageResult(60.0, 6, 10, (), (), ("python",)),
+        ),
+        profile=profile,
+        enforcement=enforcement,
+        evaluation=evaluate(current=scan, profile=profile, enforcement=enforcement),
+    )
+
+    assert reports.full["schema_version"] == 3
+    assert reports.full["checks"]["lint"]["count"] == 1
+    assert reports.full["checks"]["coverage"]["observed_percent"] == 70.0
+    assert reports.full["checks"]["coverage"]["required_percent"] == 80.0
+    assert reports.full["checks"]["coverage"]["target_percent"] == 80.0
+    assert reports.full["baseline"]["coverage_percent"] == 60.0
+    repair_checks = {item["check"] for item in reports.fix_context["repair_batch"]}
+    assert {"lint", "coverage"} <= repair_checks
+    summary = render_summary(reports)
+    assert "| General lint |" in summary
+    assert "| Test coverage | 70.00% | >= 80.00% | FAIL |" in summary
+    annotations = render_annotations(reports)
+    assert any("title=General lint" in annotation for annotation in annotations)
 
 
 def test_path_context_findings_are_reported_without_source_annotations() -> None:

@@ -15,11 +15,13 @@ def test_action_metadata_exposes_confirmed_public_interface() -> None:
     assert metadata["inputs"]["level"]["default"] == "standard"
     assert metadata["inputs"]["require-improvement"]["default"] == "2"
     assert metadata["inputs"]["path"]["default"] == "."
+    assert metadata["inputs"]["coverage-command"]["default"] == ""
     assert set(metadata["inputs"]) == {
         "level",
         "require-improvement",
         "path",
         "baseline-ref",
+        "coverage-command",
         "repair-limit",
         "annotation-limit",
     }
@@ -34,6 +36,8 @@ def test_action_metadata_exposes_confirmed_public_interface() -> None:
         "yamllint-findings",
         "markdownlint-findings",
         "typo-findings",
+        "lint-findings",
+        "coverage-percent",
         "report-path",
         "fix-context-path",
         "baseline-sha",
@@ -42,10 +46,10 @@ def test_action_metadata_exposes_confirmed_public_interface() -> None:
     assert any(step.get("id") == "quality" for step in metadata["runs"]["steps"])
 
 
-def test_package_version_matches_v1_2_3_release() -> None:
+def test_package_version_matches_v1_3_0_release() -> None:
     metadata = tomllib.loads((ROOT / "pyproject.toml").read_text())
 
-    assert metadata["project"]["version"] == "1.2.3"
+    assert metadata["project"]["version"] == "1.3.0"
 
 
 def test_action_outputs_forward_quality_step_outputs() -> None:
@@ -72,8 +76,10 @@ def test_action_installs_tools_in_an_isolated_virtual_environment() -> None:
     assert "--user" not in install_script
     assert "RUNNER_TEMP" in install_script
     assert "semgrep==1.172.0" in install_script
+    assert "ruff==0.16.1" in install_script
     assert "yamllint==1.38.0" in install_script
     assert "markdownlint-cli@0.49.1" in install_script
+    assert "oxlint@1.77.0" in install_script
     assert "ai_code_quality.install_typos" in install_script
     assert "process.versions.node" in install_script
     assert "Node.js 22 or newer is required" in install_script

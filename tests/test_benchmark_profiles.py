@@ -88,6 +88,8 @@ def test_benchmark_profile_contract_matches_canonical_profiles() -> None:
             "arguments": profile.max_parameters,
             "policy": profile.semgrep_policy,
             "typos": profile.typos_enabled,
+            "lint": profile.lint_policy,
+            "coverage": profile.minimum_coverage_percent,
         }
         for name, profile in LEVELS.items()
     }
@@ -298,7 +300,7 @@ def _fixture_finding_checks(disabled: set[str], failed: set[str]) -> dict[str, o
             "immediate_count": 0,
             "findings": [],
         }
-        for name in ("semgrep", "yamllint", "markdownlint", "typos")
+        for name in ("semgrep", "yamllint", "markdownlint", "typos", "lint")
     }
 
 
@@ -316,6 +318,8 @@ def _fixture_checks(profile: str, verdict: str) -> dict[str, object]:
             "yamllint",
             "markdownlint",
             "typos",
+            "lint",
+            "coverage",
         }
         if profile == "none"
         else ({"semgrep", "yamllint", "markdownlint"} if profile == "minimal" else set())
@@ -329,10 +333,53 @@ def _fixture_checks(profile: str, verdict: str) -> dict[str, object]:
         ),
         "arguments": _fixture_debt_check("arguments", limits.max_parameters, disabled, failed),
         **_fixture_finding_checks(disabled, failed),
+        "coverage": {
+            "status": _fixture_status("coverage", disabled, failed),
+            "blocking": "coverage" not in disabled,
+            "observed_percent": None if profile == "none" else 100.0,
+            "required_percent": limits.minimum_coverage_percent,
+            "target_percent": limits.minimum_coverage_percent,
+            "debt": 0.0,
+            "allowed_debt": None if profile == "none" else 0.0,
+            "covered_units": 0 if profile == "none" else 10,
+            "total_units": 0 if profile == "none" else 10,
+            "detected_languages": [] if profile == "none" else ["python"],
+            "files": []
+            if profile == "none"
+            else [
+                {
+                    "path": "src/example.py",
+                    "language": "python",
+                    "covered_units": 10,
+                    "total_units": 10,
+                }
+            ],
+            "reports": []
+            if profile == "none"
+            else [
+                {
+                    "path": "coverage.json",
+                    "format": "coverage.py-json",
+                    "covered_units": 10,
+                    "total_units": 10,
+                    "languages": ["python"],
+                    "files": [
+                        {
+                            "path": "src/example.py",
+                            "language": "python",
+                            "covered_units": 10,
+                            "total_units": 10,
+                        }
+                    ],
+                }
+            ],
+        },
     }
 
 
 def _fixture_tools(profile: str) -> dict[str, object]:
+    from ai_code_quality.profiles import LEVELS
+
     policy = None if profile in {"none", "minimal"} else profile
     return {
         "excluded_directories": [".git", "node_modules"],
@@ -347,12 +394,29 @@ def _fixture_tools(profile: str) -> dict[str, object]:
         "yamllint": {"version": "1.38.0", "policy": policy},
         "markdownlint": {"version": "0.49.1", "policy": policy},
         "typos": {"version": "1.48.0", "enabled": profile != "none"},
+        "general_lint": {
+            "policy": LEVELS[profile].lint_policy,
+            "ruff_version": "0.16.1",
+            "oxlint_version": "1.77.0",
+            "semgrep_version": "1.172.0",
+        },
+        "coverage": {
+            "target_percent": LEVELS[profile].minimum_coverage_percent,
+            "accepted_formats": [
+                "coverage.py-json",
+                "istanbul-json-summary",
+                "lcov",
+                "cobertura-xml",
+                "jacoco-xml",
+                "go-coverprofile",
+            ],
+        },
     }
 
 
 def _write_report(path: Path, verdict: str = "pass", profile: str = "strict") -> str:
     report = {
-        "schema_version": 2,
+        "schema_version": 3,
         "verdict": verdict,
         "quality_verdict": verdict,
         "profile": profile,
@@ -486,6 +550,8 @@ def test_report_classification_rejects_metrics_that_contradict_pass_status(
         ("yamllint", {"count": 1, "findings": [{}]}),
         ("markdownlint", {"count": 1, "findings": [{}]}),
         ("typos", {"count": 1, "findings": [{}]}),
+        ("lint", {"count": 1, "findings": [{}]}),
+        ("coverage", {"observed_percent": 0.0, "covered_units": 0}),
     ],
 )
 def test_report_classification_rejects_forged_pass_for_each_check(

@@ -55,6 +55,34 @@ class ToolFinding:
 
 
 @dataclass(frozen=True, slots=True)
+class CoverageFile:
+    path: str
+    language: str
+    covered_units: int
+    total_units: int
+
+
+@dataclass(frozen=True, slots=True)
+class CoverageReport:
+    path: str
+    format: str
+    covered_units: int
+    total_units: int
+    languages: tuple[str, ...]
+    files: tuple[CoverageFile, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class CoverageResult:
+    percentage: float
+    covered_units: int
+    total_units: int
+    files: tuple[CoverageFile, ...]
+    reports: tuple[CoverageReport, ...]
+    detected_languages: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class ScanResult:
     duplication: DuplicationResult
     functions: tuple[ComplexityFunction, ...]
@@ -62,3 +90,5 @@ class ScanResult:
     yamllint: tuple[ToolFinding, ...] = ()
     markdownlint: tuple[ToolFinding, ...] = ()
     typos: tuple[ToolFinding, ...] = ()
+    lint: tuple[ToolFinding, ...] = ()
+    coverage: CoverageResult | None = None

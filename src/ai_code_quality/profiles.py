@@ -19,20 +19,61 @@ class Profile:
     yamllint_policy: str | None
     markdownlint_policy: str | None
     typos_enabled: bool
+    lint_policy: str | None
+    minimum_coverage_percent: float | None
 
     @property
     def enabled(self) -> bool:
         return self.max_duplication_percent is not None and self.max_ccn is not None
 
 
+def _profile(
+    name: str,
+    duplication: float,
+    ccn: int,
+    function_length: int,
+    parameters: int,
+    *,
+    coverage: float,
+    existing_policy: str | None,
+) -> Profile:
+    return Profile(
+        name=name,
+        max_duplication_percent=duplication,
+        max_ccn=ccn,
+        max_function_length=function_length,
+        max_parameters=parameters,
+        semgrep_policy=existing_policy,
+        yamllint_policy=existing_policy,
+        markdownlint_policy=existing_policy,
+        typos_enabled=True,
+        lint_policy=name,
+        minimum_coverage_percent=coverage,
+    )
+
+
 _LEVELS: Final[dict[str, Profile]] = {
-    "none": Profile("none", None, None, None, None, None, None, None, False),
-    "minimal": Profile("minimal", 20.0, 30, 200, 10, None, None, None, True),
-    "basic": Profile("basic", 15.0, 20, 150, 9, "basic", "basic", "basic", True),
-    "standard": Profile("standard", 10.0, 15, 100, 7, "standard", "standard", "standard", True),
-    "strict": Profile("strict", 0.0, 10, 75, 6, "strict", "strict", "strict", True),
-    "hardened": Profile("hardened", 0.0, 8, 60, 5, "hardened", "hardened", "hardened", True),
-    "maximum": Profile("maximum", 0.0, 5, 40, 4, "maximum", "maximum", "maximum", True),
+    "none": Profile(
+        "none", None, None, None, None, None, None, None, False, None, None
+    ),
+    "minimal": _profile(
+        "minimal", 20.0, 30, 200, 10, coverage=20.0, existing_policy=None
+    ),
+    "basic": _profile(
+        "basic", 15.0, 20, 150, 9, coverage=40.0, existing_policy="basic"
+    ),
+    "standard": _profile(
+        "standard", 10.0, 15, 100, 7, coverage=60.0, existing_policy="standard"
+    ),
+    "strict": _profile(
+        "strict", 0.0, 10, 75, 6, coverage=80.0, existing_policy="strict"
+    ),
+    "hardened": _profile(
+        "hardened", 0.0, 8, 60, 5, coverage=90.0, existing_policy="hardened"
+    ),
+    "maximum": _profile(
+        "maximum", 0.0, 5, 40, 4, coverage=95.0, existing_policy="maximum"
+    ),
 }
 
 LEVELS: Final[Mapping[str, Profile]] = MappingProxyType(_LEVELS)

@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from ai_code_quality.checks.common import (
+    COVERAGE_REPORT_PATTERNS,
     DEFAULT_EXCLUDED_DIRECTORIES,
     normalize_scanner_path,
     resolve_command,
@@ -118,6 +119,8 @@ def run_typos(repository: Path) -> tuple[ToolFinding, ...]:
     command = [resolve_command("typos"), "--format", "json", "--sort"]
     for directory in DEFAULT_EXCLUDED_DIRECTORIES:
         command.extend(("--exclude", directory))
+    for pattern in COVERAGE_REPORT_PATTERNS:
+        command.extend(("--exclude", pattern))
     command.append(".")
     output = run_command_capture(
         command,

@@ -8,6 +8,7 @@ from typing import Any
 
 from ai_code_quality.checks.common import DEFAULT_EXCLUDED_DIRECTORIES
 from ai_code_quality.checks.jscpd import JSCPD_VERSION
+from ai_code_quality.checks.lint import OXLINT_VERSION, RUFF_VERSION
 from ai_code_quality.checks.lizard import LIZARD_VERSION
 from ai_code_quality.checks.markdownlint import MARKDOWNLINT_VERSION
 from ai_code_quality.checks.semgrep import SEMGREP_VERSION
@@ -17,6 +18,8 @@ from ai_code_quality.install_typos import TYPOS_VERSION
 from ai_code_quality.models import (
     CloneFragment,
     ComplexityFunction,
+    CoverageFile,
+    CoverageReport,
     DuplicationClone,
     ScanResult,
     ToolFinding,
@@ -185,12 +188,34 @@ def _tool_finding_dict(finding: ToolFinding) -> dict[str, object]:
     }
 
 
-def _tool_repair_item(finding: ToolFinding) -> dict[str, object]:
+def _tool_repair_item(
+    finding: ToolFinding, *, check: str | None = None
+) -> dict[str, object]:
     return {
         "id": (f"{finding.tool}:{finding.path}:{finding.rule}:{finding.line}:{finding.column}"),
-        "check": finding.tool,
+        "check": check or finding.tool,
         "kind": "tool-finding",
         **_tool_finding_dict(finding),
+    }
+
+
+def _coverage_file_dict(item: CoverageFile) -> dict[str, object]:
+    return {
+        "path": item.path,
+        "language": item.language,
+        "covered_units": item.covered_units,
+        "total_units": item.total_units,
+    }
+
+
+def _coverage_report_dict(item: CoverageReport) -> dict[str, object]:
+    return {
+        "path": item.path,
+        "format": item.format,
+        "covered_units": item.covered_units,
+        "total_units": item.total_units,
+        "languages": list(item.languages),
+        "files": [_coverage_file_dict(file) for file in item.files],
     }
 
 
@@ -225,7 +250,7 @@ def build_reports(
     max_observed_ccn = max((function.ccn for function in scan.functions), default=0)
 
     full: dict[str, Any] = {
-        "schema_version": 2,
+        "schema_version": 3,
         "verdict": "pass" if evaluation.passed else "fail",
         "quality_verdict": (
             "pass"
@@ -237,6 +262,8 @@ def build_reports(
             and evaluation.yamllint.quality_passed
             and evaluation.markdownlint.quality_passed
             and evaluation.typos.quality_passed
+            and evaluation.lint.quality_passed
+            and evaluation.coverage.quality_passed
             else "fail"
         ),
         "profile": profile.name,
@@ -266,6 +293,23 @@ def build_reports(
                 "policy": profile.markdownlint_policy,
             },
             "typos": {"version": TYPOS_VERSION, "enabled": profile.typos_enabled},
+            "general_lint": {
+                "policy": profile.lint_policy,
+                "ruff_version": RUFF_VERSION,
+                "oxlint_version": OXLINT_VERSION,
+                "semgrep_version": SEMGREP_VERSION,
+            },
+            "coverage": {
+                "target_percent": profile.minimum_coverage_percent,
+                "accepted_formats": [
+                    "coverage.py-json",
+                    "istanbul-json-summary",
+                    "lcov",
+                    "cobertura-xml",
+                    "jacoco-xml",
+                    "go-coverprofile",
+                ],
+            },
             "excluded_directories": list(DEFAULT_EXCLUDED_DIRECTORIES),
         },
         "checks": {
@@ -335,6 +379,35 @@ def build_reports(
             "yamllint": _finding_check(evaluation.yamllint),
             "markdownlint": _finding_check(evaluation.markdownlint),
             "typos": _finding_check(evaluation.typos),
+            "lint": _finding_check(evaluation.lint),
+            "coverage": {
+                "status": "skipped"
+                if evaluation.coverage.skipped
+                else "pass"
+                if evaluation.coverage.quality_passed
+                else "fail",
+                "blocking": evaluation.coverage.blocking,
+                "observed_percent": evaluation.coverage.observed,
+                "required_percent": evaluation.coverage.required,
+                "target_percent": evaluation.coverage.target,
+                "debt": evaluation.coverage.debt,
+                "allowed_debt": evaluation.coverage.allowed_debt,
+                "covered_units": scan.coverage.covered_units if scan.coverage else 0,
+                "total_units": scan.coverage.total_units if scan.coverage else 0,
+                "detected_languages": (
+                    list(scan.coverage.detected_languages) if scan.coverage else []
+                ),
+                "files": (
+                    [_coverage_file_dict(item) for item in scan.coverage.files]
+                    if scan.coverage
+                    else []
+                ),
+                "reports": (
+                    [_coverage_report_dict(item) for item in scan.coverage.reports]
+                    if scan.coverage
+                    else []
+                ),
+            },
         },
         "baseline": None,
     }
@@ -358,6 +431,10 @@ def build_reports(
             "yamllint_count": len(baseline.yamllint),
             "markdownlint_count": len(baseline.markdownlint),
             "typos_count": len(baseline.typos),
+            "lint_count": len(baseline.lint),
+            "coverage_percent": (
+                baseline.coverage.percentage if baseline.coverage is not None else None
+            ),
         }
 
     repair_items: list[dict[str, object]] = []
@@ -396,6 +473,31 @@ def build_reports(
             repair_items.extend(
                 _tool_repair_item(finding) for finding in finding_evaluation.findings
             )
+    if not evaluation.lint.quality_passed:
+        repair_items.extend(
+            _tool_repair_item(finding, check="lint")
+            for finding in evaluation.lint.findings
+        )
+    if not evaluation.coverage.quality_passed and not evaluation.coverage.skipped:
+        repair_items.append(
+            {
+                "id": "coverage:repository",
+                "check": "coverage",
+                "kind": "coverage-metric",
+                "observed_percent": evaluation.coverage.observed,
+                "required_percent": evaluation.coverage.required,
+                "target_percent": evaluation.coverage.target,
+                "detected_languages": (
+                    list(scan.coverage.detected_languages) if scan.coverage else []
+                ),
+                "reports": (
+                    [item.path for item in scan.coverage.reports] if scan.coverage else []
+                ),
+                "instruction": (
+                    "Add or extend tests and regenerate a supported coverage report."
+                ),
+            }
+        )
     if not evaluation.duplication.quality_passed:
         repair_items.extend(_bounded_family(family) for family in families)
 
@@ -450,6 +552,7 @@ def build_reports(
         ("yamllint", evaluation.yamllint),
         ("markdownlint", evaluation.markdownlint),
         ("typos", evaluation.typos),
+        ("lint", evaluation.lint),
     ):
         if not finding_evaluation.skipped:
             preserve.append(
@@ -461,6 +564,16 @@ def build_reports(
                     "instruction": f"Do not introduce new {check} findings.",
                 }
             )
+    if not evaluation.coverage.skipped:
+        preserve.append(
+            {
+                "check": "coverage",
+                "current_percent": evaluation.coverage.observed,
+                "required_percent": evaluation.coverage.required,
+                "target_percent": evaluation.coverage.target,
+                "instruction": "Do not reduce test coverage while repairing other findings.",
+            }
+        )
 
     near_limit: list[dict[str, object]] = []
     if profile.max_ccn is not None:
@@ -476,7 +589,7 @@ def build_reports(
         near_limit = [_function_dict(function) for function in candidates[:near_limit_limit]]
 
     fix_context: dict[str, Any] = {
-        "schema_version": 2,
+        "schema_version": 3,
         "verdict": "pass" if evaluation.passed else "fail",
         "profile": profile.name,
         "enforcement": full["enforcement"],
@@ -531,6 +644,14 @@ def render_summary(reports: Reports) -> str:
             result += f" + {check['immediate_count']} immediate"
         return result, required
 
+    coverage = checks["coverage"]
+    if coverage["status"] == "skipped":
+        coverage_result = "Disabled"
+        coverage_required = "Disabled"
+    else:
+        coverage_result = f"{float(coverage['observed_percent']):.2f}%"
+        coverage_required = f">= {float(coverage['required_percent']):.2f}%"
+
     length_result, length_required = debt_values(function_length)
     arguments_result, arguments_required = debt_values(arguments)
     lines = [
@@ -570,7 +691,12 @@ def render_summary(reports: Reports) -> str:
                 ("yamllint", "YAML lint"),
                 ("markdownlint", "Markdown lint"),
                 ("typos", "Typos"),
+                ("lint", "General lint"),
             )
+        ),
+        (
+            f"| Test coverage | {coverage_result} | {coverage_required} | "
+            f"{str(coverage['status']).upper()} |"
         ),
         "",
         "## Preserve",
@@ -609,6 +735,11 @@ def render_summary(reports: Reports) -> str:
                 lines.append(
                     f"{index}. `{item['path']}:{item['line']}` `{item['rule']}`: {item['message']}"
                 )
+        elif item["kind"] == "coverage-metric":
+            lines.append(
+                f"{index}. Test coverage is {float(item['observed_percent']):.2f}%; "
+                f"at least {float(item['required_percent']):.2f}% is required."
+            )
         else:
             fragments = item["fragments"]
             first = fragments[0]
@@ -679,6 +810,7 @@ def render_annotations(reports: Reports, *, limit: int = 40) -> list[str]:
         ("yamllint", "YAML lint"),
         ("markdownlint", "Markdown lint"),
         ("typos", "Typos"),
+        ("lint", "General lint"),
     ):
         check = full["checks"][key]
         if check["status"] == "fail":
@@ -695,6 +827,13 @@ def render_annotations(reports: Reports, *, limit: int = 40) -> list[str]:
                     f"{_escape_command_value(item['rule'])}: "
                     f"{_escape_command_value(item['message'])}"
                 )
+    coverage = full["checks"]["coverage"]
+    if coverage["status"] == "fail" and len(annotations) < limit:
+        annotations.append(
+            f"::{severity} title=Test coverage::Observed coverage "
+            f"{float(coverage['observed_percent']):.2f}%; required "
+            f"{float(coverage['required_percent']):.2f}%."
+        )
     duplication = full["checks"]["duplication"]
     if duplication["status"] == "fail":
         for family in duplication["families"]:

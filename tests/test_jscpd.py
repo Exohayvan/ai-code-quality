@@ -214,10 +214,15 @@ def test_run_jscpd_scans_real_repository_and_ignores_build_output(tmp_path: Path
     (tmp_path / "src" / "a.py").write_text(duplicate_body("first"))
     (tmp_path / "src" / "b.py").write_text(duplicate_body("second"))
     (tmp_path / "build" / "generated.py").write_text(duplicate_body("generated"))
+    (tmp_path / "coverage.json").write_text(
+        json.dumps({"files": [duplicate_body("covered")] * 4}, indent=2)
+    )
 
     result = run_jscpd(tmp_path)
 
     assert result.percentage > 0
     assert result.clones
     assert all("build/" not in clone.first.path for clone in result.clones)
+    assert all("coverage.json" not in clone.first.path for clone in result.clones)
     assert all("build/" not in clone.second.path for clone in result.clones)
+    assert all("coverage.json" not in clone.second.path for clone in result.clones)

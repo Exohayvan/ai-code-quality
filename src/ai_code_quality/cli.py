@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import shlex
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -11,7 +12,10 @@ from ai_code_quality.baseline import (
     repository_root_and_relative,
     resolve_baseline,
 )
+from ai_code_quality.checks.coverage import run_coverage
 from ai_code_quality.checks.jscpd import run_jscpd
+from ai_code_quality.checks.languages import detect_languages
+from ai_code_quality.checks.lint import run_lint
 from ai_code_quality.checks.lizard import run_lizard
 from ai_code_quality.checks.markdownlint import run_markdownlint
 from ai_code_quality.checks.semgrep import run_semgrep
@@ -28,8 +32,14 @@ from ai_code_quality.reporting import (
 )
 
 
-def scan_repository(repository: Path, profile: Profile) -> ScanResult:
-    with ThreadPoolExecutor(max_workers=6, thread_name_prefix="quality-check") as executor:
+def scan_repository(
+    repository: Path,
+    profile: Profile,
+    coverage_command: tuple[str, ...] | None = None,
+) -> ScanResult:
+    languages = detect_languages(repository)
+    coverage_enabled = profile.minimum_coverage_percent is not None and bool(languages)
+    with ThreadPoolExecutor(max_workers=8, thread_name_prefix="quality-check") as executor:
         duplication_future = executor.submit(run_jscpd, repository)
         complexity_future = executor.submit(run_lizard, repository)
         semgrep_future = (
@@ -48,12 +58,26 @@ def scan_repository(repository: Path, profile: Profile) -> ScanResult:
             else None
         )
         typos_future = executor.submit(run_typos, repository) if profile.typos_enabled else None
+        lint_future = (
+            executor.submit(run_lint, repository, profile.lint_policy, languages)
+            if profile.lint_policy is not None and languages
+            else None
+        )
+        coverage_future = (
+            executor.submit(run_coverage, repository, languages)
+            if coverage_enabled and coverage_command is None
+            else None
+        )
         duplication = duplication_future.result()
         functions = complexity_future.result()
         semgrep = semgrep_future.result() if semgrep_future is not None else ()
         yamllint = yamllint_future.result() if yamllint_future is not None else ()
         markdownlint = markdownlint_future.result() if markdownlint_future is not None else ()
         typos = typos_future.result() if typos_future is not None else ()
+        lint = lint_future.result() if lint_future is not None else ()
+        coverage = coverage_future.result() if coverage_future is not None else None
+    if coverage_enabled and coverage_command is not None:
+        coverage = run_coverage(repository, languages, coverage_command)
     return ScanResult(
         duplication=duplication,
         functions=functions,
@@ -61,6 +85,8 @@ def scan_repository(repository: Path, profile: Profile) -> ScanResult:
         yamllint=yamllint,
         markdownlint=markdownlint,
         typos=typos,
+        lint=lint,
+        coverage=coverage,
     )
 
 
@@ -87,6 +113,11 @@ def _parser() -> argparse.ArgumentParser:
         "--baseline-ref",
         default="",
         help="Explicit Git ref used for baseline comparison",
+    )
+    parser.add_argument(
+        "--coverage-command",
+        default="",
+        help="Command that generates coverage reports in current and baseline worktrees",
     )
     parser.add_argument(
         "--output",
@@ -130,11 +161,12 @@ def run(arguments: list[str] | None = None) -> int:
 
     profile = get_profile(options.level)
     enforcement = parse_enforcement(options.require_improvement)
+    coverage_command = tuple(shlex.split(options.coverage_command)) or None
     baseline_sha = ""
     baseline_scan: ScanResult | None = None
 
     if profile.enabled:
-        current_scan = scan_repository(repository, profile)
+        current_scan = scan_repository(repository, profile, coverage_command)
         if enforcement.kind is EnforcementKind.IMPROVEMENT:
             git_root, relative_target = repository_root_and_relative(repository)
             baseline_sha = resolve_baseline(
@@ -145,7 +177,18 @@ def run(arguments: list[str] | None = None) -> int:
                 baseline_target = worktree / relative_target
                 if not baseline_target.is_dir():
                     raise ValueError("The analyzed path does not exist at the comparison baseline")
-                baseline_scan = scan_repository(baseline_target, profile)
+                baseline_scan = scan_repository(baseline_target, profile, coverage_command)
+            if (
+                coverage_command is None
+                and current_scan.coverage is not None
+                and current_scan.coverage.reports
+                and baseline_scan.coverage is not None
+                and not baseline_scan.coverage.reports
+            ):
+                raise ValueError(
+                    "Coverage reports exist only in the current worktree; set "
+                    "coverage-command so the baseline report can be generated"
+                )
     else:
         current_scan = _empty_scan()
 
@@ -187,6 +230,10 @@ def run(arguments: list[str] | None = None) -> int:
             "yamllint-findings": evaluation.yamllint.count,
             "markdownlint-findings": evaluation.markdownlint.count,
             "typo-findings": evaluation.typos.count,
+            "lint-findings": evaluation.lint.count,
+            "coverage-percent": (
+                current_scan.coverage.percentage if current_scan.coverage is not None else ""
+            ),
             "report-path": paths.full_report,
             "fix-context-path": paths.fix_context,
             "baseline-sha": baseline_sha,

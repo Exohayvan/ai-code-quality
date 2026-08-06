@@ -3,7 +3,13 @@ from __future__ import annotations
 import pytest
 
 from ai_code_quality.evaluator import Enforcement, evaluate, parse_enforcement
-from ai_code_quality.models import ComplexityFunction, DuplicationResult, ScanResult, ToolFinding
+from ai_code_quality.models import (
+    ComplexityFunction,
+    CoverageResult,
+    DuplicationResult,
+    ScanResult,
+    ToolFinding,
+)
 from ai_code_quality.profiles import get_profile
 
 
@@ -18,6 +24,8 @@ def scan(
     yamllint: tuple[ToolFinding, ...] = (),
     markdownlint: tuple[ToolFinding, ...] = (),
     typos: tuple[ToolFinding, ...] = (),
+    lint: tuple[ToolFinding, ...] = (),
+    coverage: float | None = None,
 ) -> ScanResult:
     lengths = lengths or (0,) * len(ccns)
     parameters = parameters or (0,) * len(ccns)
@@ -45,6 +53,19 @@ def scan(
         yamllint=yamllint,
         markdownlint=markdownlint,
         typos=typos,
+        lint=lint,
+        coverage=(
+            None
+            if coverage is None
+            else CoverageResult(
+                percentage=coverage,
+                covered_units=round(coverage),
+                total_units=100,
+                files=(),
+                reports=(),
+                detected_languages=("python",),
+            )
+        ),
     )
 
 
@@ -177,6 +198,99 @@ def test_disabled_external_tools_are_skipped() -> None:
     assert evaluation.yamllint.skipped is True
     assert evaluation.markdownlint.skipped is True
     assert evaluation.typos.skipped is False
+
+
+def test_lint_findings_use_existing_count_ratcheting() -> None:
+    baseline = scan(
+        duplication=0.0,
+        ccns=(1,),
+        lint=tuple(finding("ruff", line=line) for line in range(1, 11)),
+        coverage=80.0,
+    )
+    current = scan(
+        duplication=0.0,
+        ccns=(1,),
+        lint=tuple(finding("ruff", line=line) for line in range(1, 10)),
+        coverage=80.0,
+    )
+
+    evaluation = evaluate(
+        current=current,
+        baseline=baseline,
+        profile=get_profile("strict"),
+        enforcement=Enforcement.improvement(10.0),
+    )
+
+    assert evaluation.lint.count == 9
+    assert evaluation.lint.allowed_count == 9
+    assert evaluation.lint.passed is True
+
+
+def test_absolute_lint_enforcement_requires_a_clean_profile() -> None:
+    evaluation = evaluate(
+        current=scan(
+            duplication=0.0,
+            ccns=(1,),
+            lint=(finding("ruff"),),
+            coverage=80.0,
+        ),
+        profile=get_profile("strict"),
+        enforcement=Enforcement.absolute(),
+    )
+
+    assert evaluation.lint.allowed_count == 0
+    assert evaluation.lint.passed is False
+
+
+def test_coverage_absolute_enforcement_uses_profile_target() -> None:
+    evaluation = evaluate(
+        current=scan(duplication=0.0, ccns=(1,), coverage=79.99),
+        profile=get_profile("strict"),
+        enforcement=Enforcement.absolute(),
+    )
+
+    assert evaluation.coverage.target == 80.0
+    assert evaluation.coverage.required == 80.0
+    assert evaluation.coverage.observed == 79.99
+    assert evaluation.coverage.passed is False
+
+
+def test_coverage_improvement_closes_the_profile_gap() -> None:
+    evaluation = evaluate(
+        current=scan(duplication=0.0, ccns=(1,), coverage=57.5),
+        baseline=scan(duplication=0.0, ccns=(1,), coverage=50.0),
+        profile=get_profile("strict"),
+        enforcement=Enforcement.improvement(25.0),
+    )
+
+    assert evaluation.coverage.target == 80.0
+    assert evaluation.coverage.debt == pytest.approx(22.5)
+    assert evaluation.coverage.allowed_debt == pytest.approx(22.5)
+    assert evaluation.coverage.required == pytest.approx(57.5)
+    assert evaluation.coverage.passed is True
+
+
+def test_coverage_at_target_must_remain_at_target_in_improvement_mode() -> None:
+    evaluation = evaluate(
+        current=scan(duplication=0.0, ccns=(1,), coverage=79.99),
+        baseline=scan(duplication=0.0, ccns=(1,), coverage=90.0),
+        profile=get_profile("strict"),
+        enforcement=Enforcement.improvement(2.0),
+    )
+
+    assert evaluation.coverage.allowed_debt == 0.0
+    assert evaluation.coverage.required == 80.0
+    assert evaluation.coverage.passed is False
+
+
+def test_coverage_is_skipped_when_no_supported_source_was_detected() -> None:
+    evaluation = evaluate(
+        current=scan(duplication=0.0, ccns=()),
+        profile=get_profile("strict"),
+        enforcement=Enforcement.absolute(),
+    )
+
+    assert evaluation.coverage.skipped is True
 
 
 def test_zero_duplication_limit_rejects_rounded_zero_with_duplicate_lines() -> None:

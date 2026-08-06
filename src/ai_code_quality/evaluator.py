@@ -92,6 +92,22 @@ class FindingEvaluation:
 
 
 @dataclass(frozen=True, slots=True)
+class CoverageEvaluation:
+    quality_passed: bool
+    blocking: bool
+    skipped: bool
+    observed: float | None
+    required: float | None
+    target: float | None
+    debt: float
+    allowed_debt: float | None
+
+    @property
+    def passed(self) -> bool:
+        return self.skipped or self.quality_passed or not self.blocking
+
+
+@dataclass(frozen=True, slots=True)
 class QualityEvaluation:
     duplication: DuplicationEvaluation
     complexity: ComplexityEvaluation
@@ -101,6 +117,8 @@ class QualityEvaluation:
     yamllint: FindingEvaluation
     markdownlint: FindingEvaluation
     typos: FindingEvaluation
+    lint: FindingEvaluation
+    coverage: CoverageEvaluation
 
     @property
     def passed(self) -> bool:
@@ -113,6 +131,8 @@ class QualityEvaluation:
             and self.yamllint.passed
             and self.markdownlint.passed
             and self.typos.passed
+            and self.lint.passed
+            and self.coverage.passed
         )
 
 
@@ -234,6 +254,8 @@ def evaluate(
             yamllint=FindingEvaluation(True, False, True, 0, 0, None, ()),
             markdownlint=FindingEvaluation(True, False, True, 0, 0, None, ()),
             typos=FindingEvaluation(True, False, True, 0, 0, None, ()),
+            lint=FindingEvaluation(True, False, True, 0, 0, None, ()),
+            coverage=CoverageEvaluation(True, False, True, None, None, None, 0.0, None),
         )
 
     assert profile.max_duplication_percent is not None
@@ -313,6 +335,46 @@ def evaluate(
         enabled=profile.typos_enabled,
         enforcement=enforcement,
     )
+    lint_evaluation = _evaluate_findings(
+        current=current.lint,
+        baseline=baseline.lint if baseline is not None else None,
+        enabled=profile.lint_policy is not None,
+        enforcement=enforcement,
+    )
+
+    coverage_target = profile.minimum_coverage_percent
+    if coverage_target is None or current.coverage is None:
+        coverage_evaluation = CoverageEvaluation(
+            True, False, True, None, None, coverage_target, 0.0, None
+        )
+    else:
+        observed_coverage = current.coverage.percentage
+        coverage_debt = max(0.0, coverage_target - observed_coverage)
+        if enforcement.kind in {EnforcementKind.ABSOLUTE, EnforcementKind.REPORT_ONLY}:
+            allowed_coverage_debt = 0.0
+        else:
+            if baseline is None or baseline.coverage is None:
+                raise ValueError(
+                    "A comparison coverage baseline is required by require-improvement"
+                )
+            assert enforcement.percent is not None
+            baseline_coverage_debt = max(
+                0.0, coverage_target - baseline.coverage.percentage
+            )
+            allowed_coverage_debt = baseline_coverage_debt * (
+                1.0 - enforcement.percent / 100.0
+            )
+        required_coverage = coverage_target - allowed_coverage_debt
+        coverage_evaluation = CoverageEvaluation(
+            quality_passed=coverage_debt <= allowed_coverage_debt + 1e-9,
+            blocking=blocking,
+            skipped=False,
+            observed=observed_coverage,
+            required=required_coverage,
+            target=coverage_target,
+            debt=coverage_debt,
+            allowed_debt=allowed_coverage_debt,
+        )
 
     return QualityEvaluation(
         duplication=DuplicationEvaluation(
@@ -353,4 +415,6 @@ def evaluate(
         yamllint=yamllint_evaluation,
         markdownlint=markdownlint_evaluation,
         typos=typos_evaluation,
+        lint=lint_evaluation,
+        coverage=coverage_evaluation,
     )
