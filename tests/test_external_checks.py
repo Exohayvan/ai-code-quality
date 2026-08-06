@@ -443,6 +443,7 @@ def test_external_linters_recursively_exclude_generated_directories(tmp_path) ->
     (generated / "bad.yml").write_text("key:  yes\n")
     (generated / "bad.md").write_text("#bad\n")
     (generated / "bad.txt").write_text("teh\n")
+    (tmp_path / "coverage.json").write_text('{"source": "teh"}\n')
     (tmp_path / "logo.png").write_bytes(b"\x89PNG\r\n\x1a\n\x00binary")
 
     assert run_yamllint(tmp_path, "strict") == ()

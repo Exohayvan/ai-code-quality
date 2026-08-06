@@ -41,7 +41,8 @@ jobs:
             --no-audit \
             --no-fund \
             --no-save \
-            markdownlint-cli@0.49.1
+            markdownlint-cli@0.49.1 \
+            oxlint@1.77.0
           python -m ai_code_quality.install_typos "$RUNNER_TEMP/ai-code-quality-bin"
           printf '%s\n' \
             "$RUNNER_TEMP/ai-code-quality-node/node_modules/.bin" \
@@ -77,18 +78,26 @@ jobs:
           path: tests/fixtures/action-pass
           level: strict
           baseline-ref: HEAD^
+          coverage-command: >-
+            python -c "import json; from pathlib import Path;
+            Path('coverage.json').write_text(json.dumps({'files': {'example.py':
+            {'summary': {'covered_lines': 4, 'num_statements': 4}}}}))"
 
       - name: Verify passing outputs
         env:
           RESULT: ${{ steps.passing.outputs.result }}
           DUPLICATION: ${{ steps.passing.outputs.duplication-percent }}
           COMPLEXITY_DEBT: ${{ steps.passing.outputs.complexity-debt }}
+          LINT_FINDINGS: ${{ steps.passing.outputs.lint-findings }}
+          COVERAGE_PERCENT: ${{ steps.passing.outputs.coverage-percent }}
           REPORT_PATH: ${{ steps.passing.outputs.report-path }}
           BASELINE_SHA: ${{ steps.passing.outputs.baseline-sha }}
         run: |
           test "$RESULT" = "pass"
           test "$DUPLICATION" = "0.0"
           test "$COMPLEXITY_DEBT" = "0"
+          test "$LINT_FINDINGS" = "0"
+          test "$COVERAGE_PERCENT" = "100.0"
           test -f "$REPORT_PATH"
           test -n "$BASELINE_SHA"
 

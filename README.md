@@ -1,6 +1,7 @@
 # AI Code Quality
 
-Profiled repository-wide complexity, duplication, security, lint, and typo gates for multi-language projects.
+Profiled repository-wide complexity, duplication, general lint, test coverage, security,
+and typo gates for multi-language projects.
 
 [![minimal p95 runtime per 1M tokens](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FExohayvan%2Fai-code-quality%2Fmain%2F.github%2Fbadges%2Fruntime-minimal-per-million-tokens-p95.json)](#profile-runtime-benchmarks)
 [![basic p95 runtime per 1M tokens](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FExohayvan%2Fai-code-quality%2Fmain%2F.github%2Fbadges%2Fruntime-basic-per-million-tokens-p95.json)](#profile-runtime-benchmarks)
@@ -31,29 +32,44 @@ jobs:
           fetch-depth: 0
 
       - uses: Exohayvan/ai-code-quality@v1
+        with:
+          coverage-command: ./scripts/coverage.sh
 ```
 
-The action scans the complete repository, not only changed files. It combines jscpd, Lizard, Semgrep, yamllint, markdownlint, and typos behind one monotonic profile and one bounded report.
+The action scans the complete repository, not only changed files. It combines jscpd,
+Lizard, Ruff, Oxlint, Semgrep, yamllint, markdownlint, typos, and standard coverage
+reports behind one monotonic profile and one bounded report.
 
-By default, every enabled debt or finding metric must independently improve by at least 2% against the automatically resolved baseline. A metric already at zero must remain at zero. Semgrep `ERROR` findings block immediately and are never grandfathered. Use `require-improvement: "false"` when you want only the selected profile's absolute limits.
+By default, every enabled debt or finding metric must independently improve by at least
+2% against the automatically resolved baseline. A metric already at zero must remain at
+zero. Semgrep `ERROR` findings block immediately and are never grandfathered. Use
+`require-improvement: "false"` when you want only the selected profile's absolute limits.
 
-`v1` pins jscpd `5.0.14`, Lizard `1.23.0`, Semgrep `1.172.0`, yamllint `1.38.0`, markdownlint-cli `0.49.1`, and typos `1.48.0` for reproducible measurements. Semgrep rules and lint policies are action-owned and profile-versioned, so identical commits do not depend on mutable registry defaults.
+`v1` pins jscpd `5.0.14`, Lizard `1.23.0`, Ruff `0.16.1`, Oxlint `1.77.0`,
+Semgrep `1.172.0`, yamllint `1.38.0`, markdownlint-cli `0.49.1`, and typos
+`1.48.0` for reproducible measurements. Semgrep rules and lint policies are
+action-owned and profile-versioned, so identical commits do not depend on mutable
+registry defaults.
 
 ## Quality levels
 
-| Level | Duplication | CCN | Function length | Arguments | Semgrep | YAML | Markdown | Typos |
-| --- | ---: | ---: | ---: | ---: | --- | --- | --- | --- |
-| `none` | Disabled | Disabled | Disabled | Disabled | Disabled | Disabled | Disabled | Disabled |
-| `minimal` | 20% | 30 | 200 | 10 | Disabled | Disabled | Disabled | Enabled |
-| `basic` | 15% | 20 | 150 | 9 | Basic | Relaxed | Core | Enabled |
-| `standard` | 10% | 15 | 100 | 7 | Standard | Standard | Standard | Enabled |
-| `strict` | 0% | 10 | 75 | 6 | Strict | 120 columns | 120 columns | Enabled |
-| `hardened` | 0% | 8 | 60 | 5 | Hardened | 100 columns | 100 columns | Enabled |
-| `maximum` | 0% | 5 | 40 | 4 | Maximum | 80 columns | 80 columns | Enabled |
+| Level | Duplication | CCN | Function length | Arguments | General lint | Coverage | Semgrep | YAML | Markdown | Typos |
+| --- | ---: | ---: | ---: | ---: | --- | ---: | --- | --- | --- | --- |
+| `none` | Disabled | Disabled | Disabled | Disabled | Disabled | Disabled | Disabled | Disabled | Disabled | Disabled |
+| `minimal` | 20% | 30 | 200 | 10 | Basic correctness | 20% | Disabled | Disabled | Disabled | Enabled |
+| `basic` | 15% | 20 | 150 | 9 | Recommended | 40% | Basic | Relaxed | Core | Enabled |
+| `standard` | 10% | 15 | 100 | 7 | Standard | 60% | Standard | Standard | Standard | Enabled |
+| `strict` | 0% | 10 | 75 | 6 | Strict | 80% | Strict | 120 columns | 120 columns | Enabled |
+| `hardened` | 0% | 8 | 60 | 5 | Very strict | 90% | Hardened | 100 columns | 100 columns | Enabled |
+| `maximum` | 0% | 5 | 40 | 4 | Maximum | 95% | Maximum | 80 columns | 80 columns | Enabled |
 
-Limits are inclusive. A function exactly at its CCN, length, or argument limit passes. A duplication percentage exactly at a nonzero limit also passes. At a 0% duplication limit, any detected duplicated lines fail even if jscpd rounds the displayed percentage to `0.00%`.
+Limits are inclusive. A function exactly at its CCN, length, or argument limit passes.
+A duplication percentage exactly at a nonzero limit also passes. At a 0% duplication
+limit, any detected duplicated lines fail even if jscpd rounds the displayed percentage
+to `0.00%`.
 
-The profiles are monotonic: stronger profiles never loosen or disable checks from weaker profiles. Mutation testing is not part of v1.
+The profiles are monotonic: stronger profiles never loosen or disable checks from weaker
+profiles. Mutation testing is not part of v1.
 
 ## Inputs
 
@@ -63,6 +79,7 @@ The profiles are monotonic: stronger profiles never loosen or disable checks fro
 | `require-improvement` | `2` | Absolute, report-only, maintenance, or percentage-improvement enforcement. |
 | `path` | `.` | Repository or subdirectory to analyze. |
 | `baseline-ref` | empty | Explicit Git ref for baseline comparisons. |
+| `coverage-command` | empty | Direct command that generates supported coverage reports in both the current and baseline worktrees. |
 | `repair-limit` | `15` | Maximum findings placed in the bounded AI repair batch. |
 | `annotation-limit` | `40` | Maximum source annotations written to GitHub. |
 
@@ -85,6 +102,8 @@ Improvement is evaluated independently for:
 - yamllint finding count
 - markdownlint finding count
 - Typo count
+- General lint finding count
+- Test coverage debt
 
 The three per-function debts are:
 
@@ -94,7 +113,13 @@ function-length debt = sum(max(0, function length - profile length limit))
 argument debt = sum(max(0, function parameters - profile parameter limit))
 ```
 
-For an improvement percentage `p`, the allowed current duplication is `baseline duplication * (1 - p/100)`. Integer debts and finding counts use the same calculation rounded down to a whole number. A clean baseline remains clean. Current Semgrep `ERROR` findings always fail in blocking modes, regardless of baseline findings.
+For an improvement percentage `p`, the allowed current duplication is
+`baseline duplication * (1 - p/100)`. Integer debts and finding counts use the same
+calculation rounded down to a whole number. Coverage is higher-is-better, so it is
+converted to `max(0, profile target - measured coverage)` debt and must close `p`
+percent of that gap. Coverage already at or above the profile target must remain at or
+above the target. A clean baseline remains clean. Current Semgrep `ERROR` findings
+always fail in blocking modes, regardless of baseline findings.
 
 Example requiring a 2% improvement against the pull-request merge base:
 
@@ -117,7 +142,9 @@ When `require-improvement` is `0` or a positive number, the action resolves the 
 2. The merge base between `HEAD` and the pull request's base commit
 3. The `before` commit from a push event
 
-Manual runs and initial branch pushes without a usable previous commit must provide `baseline-ref`. Baseline comparisons require the commit to be present locally, so use `actions/checkout` with `fetch-depth: 0`.
+Manual runs and initial branch pushes without a usable previous commit must provide
+`baseline-ref`. Baseline comparisons require the commit to be present locally, so use
+`actions/checkout` with `fetch-depth: 0`.
 
 ## Outputs
 
@@ -149,6 +176,8 @@ Give the action step an `id` to consume outputs:
 | `yamllint-findings` | Current yamllint finding count. |
 | `markdownlint-findings` | Current markdownlint finding count. |
 | `typo-findings` | Current typo finding count. |
+| `lint-findings` | Current combined general lint finding count. |
+| `coverage-percent` | Current aggregate test coverage percentage, or empty when coverage is disabled or not applicable. |
 | `report-path` | Absolute path to the complete JSON report. |
 | `fix-context-path` | Absolute path to the bounded AI repair context. |
 | `baseline-sha` | Resolved baseline commit when comparison mode is active. |
@@ -171,7 +200,11 @@ The bounded summary contains:
 
 ### Source annotations
 
-Failing functions are annotated with the function name, line range, observed metric, and allowed limit. Semgrep, YAML, Markdown, and typo findings include their rule, message, and source coordinates. Duplicate clone fragments include their source ranges and stable family identifier. The number of annotations is bounded by `annotation-limit`.
+Failing functions are annotated with the function name, line range, observed metric, and
+allowed limit. Semgrep, general lint, YAML, Markdown, and typo findings include their
+rule, message, and source coordinates. Duplicate clone fragments include their source
+ranges and stable family identifier. The number of annotations is bounded by
+`annotation-limit`.
 
 ### `.ai-code-quality/fix-context.json`
 
@@ -185,11 +218,15 @@ This compact file is intended for coding agents. It contains:
 - Near-limit passing functions
 - A count of findings omitted from the current batch
 
-Duplicate pairs connected through a shared fragment are grouped into one clone family so a repeated block is presented as one repair problem instead of many pair combinations.
+Duplicate pairs connected through a shared fragment are grouped into one clone family
+so a repeated block is presented as one repair problem instead of many pair combinations.
 
 ### `.ai-code-quality/report.json`
 
-The schema-v2 complete report contains every function measurement, duplicate family, scanner finding, policy and tool version, check status, threshold, baseline measurement, and enforcement setting. It is not dumped into the normal log.
+The schema-v3 complete report contains every function measurement, duplicate family,
+scanner finding, coverage file and report measurement, detected language, policy and
+tool version, check status, threshold, baseline measurement, and enforcement setting.
+It is not dumped into the normal log.
 
 Reports remain in the workspace and can be uploaded as artifacts:
 
@@ -227,15 +264,82 @@ The selected profile changes the allowed result, not what counts as a clone.
 
 ### Function metrics
 
-One Lizard CSV scan supplies cyclomatic complexity, function length, and parameter count. Each dimension is evaluated as a separate debt so improvement in one cannot hide regression in another.
+One Lizard CSV scan supplies cyclomatic complexity, function length, and parameter
+count. Each dimension is evaluated as a separate debt so improvement in one cannot hide
+regression in another.
 
 ### Security and correctness
 
-Semgrep uses action-owned rules selected by the profile. `ERROR` findings are immediate blockers in absolute and improvement modes. Lower-severity findings are ratcheted by count. Scanner parse errors, rule errors, timeouts, missing binaries, and malformed output fail closed.
+Semgrep uses action-owned rules selected by the profile. `ERROR` findings are immediate
+blockers in absolute and improvement modes. Lower-severity findings are ratcheted by
+count. Scanner parse errors, rule errors, timeouts, missing binaries, and malformed
+output fail closed.
+
+### General multi-language lint
+
+The action detects source languages from repository paths and runs one cumulative lint policy:
+
+- Ruff for Python
+- Oxlint for JavaScript and TypeScript
+- Action-owned Semgrep lint rules for C, C++, C#, Go, Java, Kotlin, PHP, Ruby, Rust,
+  and Swift
+
+Every lint finding is normalized into the same source-coordinate structure used by
+yamllint and markdownlint. The profile changes enabled rule categories, not enforcement
+plumbing. Absolute mode requires zero lint findings. Maintenance and percentage
+improvement modes ratchet the combined lint count against the same baseline worktree
+used by all other metrics.
+
+### Test coverage
+
+Coverage is aggregated from file-level data emitted by established language coverage
+tools. The action discovers these standard report families recursively:
+
+The action parses and merges these established formats:
+
+- coverage.py JSON (`coverage.json`)
+- Istanbul JSON summary (`coverage-summary.json`)
+- LCOV (`lcov.info` or `coverage.lcov`)
+- Cobertura XML (`coverage.xml` or `cobertura*.xml`)
+- JaCoCo XML (`jacoco*.xml`)
+- Go cover profiles (`coverage.out` or `cover.out`)
+
+Recognized coverage artifacts are excluded from duplication and typo scanner inputs, so
+report bytes cannot change unrelated quality metrics.
+
+This supports mixed-language repositories because reports are parsed into repository-
+relative file records and merged before enforcement. Conflicting measurements for the
+same source path fail closed instead of being double-counted. A repository with detected
+supported source but no discovered coverage report measures 0%. Repositories without
+supported source skip coverage.
+
+For baseline ratcheting, use `coverage-command` unless the reports are committed. The
+command is parsed as a direct argument vector, not a shell expression, and runs after
+other scanners in both the current and temporary baseline worktrees. If improvement
+mode sees a current report but no baseline report and no command, the action fails
+closed instead of silently treating the missing baseline as zero. Put compound setup
+and test logic in a repository-owned script, for example:
+
+```yaml
+- uses: Exohayvan/ai-code-quality@v1
+  with:
+    level: strict
+    require-improvement: "2"
+    coverage-command: ./scripts/coverage.sh
+```
+
+The script must freshly generate one or more supported reports beneath the analyzed `path`
+and exit nonzero on test or coverage-tool failure. It must not add, remove, or modify
+supported source files; the action hashes source before and after execution and fails
+closed on mutation. In absolute or report-only mode, a preceding workflow step may
+generate current-worktree reports instead.
 
 ### YAML, Markdown, and typos
 
-yamllint and markdownlint use action-owned monotonic policies. Repositories can still use normal ignore files, including `.markdownlintignore`. typos honors its repository configuration and dictionaries. Finding counts are ratcheted independently; stronger YAML and Markdown profiles tighten line-length and structural policy.
+yamllint and markdownlint use action-owned monotonic policies. Repositories can still
+use normal ignore files, including `.markdownlintignore`. typos honors its repository
+configuration and dictionaries. Finding counts are ratcheted independently; stronger
+YAML and Markdown profiles tighten line-length and structural policy.
 
 ### Default exclusions
 
@@ -264,7 +368,10 @@ The composite action requires:
 - Git when baseline comparison is enabled
 - Network access for pinned package and binary installation unless the runner already caches them
 
-The action provisions its own Node.js 22 runtime and npm through `actions/setup-node@v7`. GitHub-hosted Ubuntu, macOS, and Windows x64 runners satisfy the remaining requirements. The pinned typos installer also supports Linux ARM64 and macOS ARM64. Downloads are size-bounded and SHA-256 verified before extraction.
+The action provisions its own Node.js 22 runtime and npm through `actions/setup-node@v7`.
+GitHub-hosted Ubuntu, macOS, and Windows x64 runners satisfy the remaining requirements.
+The pinned typos installer also supports Linux ARM64 and macOS ARM64. Downloads are
+size-bounded and SHA-256 verified before extraction.
 
 ## Local development
 
@@ -272,7 +379,8 @@ The action provisions its own Node.js 22 runtime and npm through `actions/setup-
 python -m venv .venv
 .venv/bin/python -m pip install -e ".[dev]" \
   lizard==1.23.0 semgrep==1.172.0 yamllint==1.38.0
-npm install --prefix /tmp/ai-code-quality-node markdownlint-cli@0.49.1
+npm install --prefix /tmp/ai-code-quality-node \
+  markdownlint-cli@0.49.1 oxlint@1.77.0
 PYTHONPATH=src .venv/bin/python -m ai_code_quality.install_typos /tmp/ai-code-quality-bin
 PATH="/tmp/ai-code-quality-node/node_modules/.bin:/tmp/ai-code-quality-bin:$PATH" \
   PYTHONPATH=src .venv/bin/python -m pytest -q
@@ -315,7 +423,7 @@ The matrix uses `fail-fast: false`, so one repository does not cancel unrelated 
 GitHub account concurrency limits can still queue cells; independence does not guarantee that all
 252 runners execute simultaneously. The run consumes 252 fresh Linux job runtimes, so cold setup
 and action installation are intentionally part of its billable runner cost. Each cell uploads one
-identity-bound JSON result plus the complete schema-v2 action report. The result binds the report
+identity-bound JSON result plus the complete schema-v3 action report. The result binds the report
 bytes by SHA-256 and records the run ID and attempt, language, repository, pinned commit, profile,
 runner, action commit, outcome, token count, and elapsed seconds. Fan-in independently recomputes the
 report hash and validates its exact fields, field types, profile enablement, check outcomes, and

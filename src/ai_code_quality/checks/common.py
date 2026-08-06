@@ -24,6 +24,25 @@ DEFAULT_EXCLUDED_DIRECTORIES: Final[tuple[str, ...]] = (
     ".generated",
 )
 
+COVERAGE_REPORT_EXACT_NAMES: Final[tuple[str, ...]] = (
+    "coverage.json",
+    "coverage-summary.json",
+    "lcov.info",
+    "coverage.lcov",
+    "coverage.out",
+    "cover.out",
+    "coverage.xml",
+)
+COVERAGE_REPORT_XML_PREFIXES: Final[tuple[str, ...]] = ("cobertura", "jacoco")
+COVERAGE_REPORT_PATTERNS: Final[tuple[str, ...]] = tuple(
+    pattern
+    for name in (
+        *COVERAGE_REPORT_EXACT_NAMES,
+        *(f"{prefix}*.xml" for prefix in COVERAGE_REPORT_XML_PREFIXES),
+    )
+    for pattern in (name, f"**/{name}")
+)
+
 _DRIVE_PATH = re.compile(r"^[A-Za-z]:")
 
 

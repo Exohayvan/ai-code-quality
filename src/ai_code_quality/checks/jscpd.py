@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Final
 
 from ai_code_quality.checks.common import (
+    COVERAGE_REPORT_PATTERNS,
     DEFAULT_EXCLUDED_DIRECTORIES,
     normalize_scanner_path,
     resolve_command,
@@ -132,11 +133,12 @@ def run_jscpd(root: Path, command: Sequence[str] | None = None) -> DuplicationRe
         raise ValueError(f"Repository path is not a directory: {root}")
     if command is None:
         command = (resolve_command("npx"), "--yes", f"jscpd@{JSCPD_VERSION}")
-    ignore = ",".join(
+    directory_patterns = [
         pattern
         for directory in DEFAULT_EXCLUDED_DIRECTORIES
         for pattern in (f"{directory}/**", f"**/{directory}/**")
-    )
+    ]
+    ignore = ",".join([*directory_patterns, *COVERAGE_REPORT_PATTERNS])
     with tempfile.TemporaryDirectory(prefix="ai-code-quality-jscpd-") as temporary:
         output = Path(temporary)
         run_command(
