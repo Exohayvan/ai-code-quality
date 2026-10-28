@@ -59,20 +59,6 @@
     },
     {
       "tool": "oxlint",
-      "rule": "unicorn(prefer-event-target)",
-      "path": "app/test/host/startup.test.cjs",
-      "line": 25,
-      "column": 18,
-      "end_line": 25,
-      "end_column": 29,
-      "repository": "Exohayvan-Systems/service.oneuptime.server",
-      "blob_sha256": "a6227dce963f6e84effa8461f003d1a09eb1f6f9498544d6c1548f1b876e1d6b",
-      "rationale": "Model Node ChildProcess on/once/emit semantics with EventEmitter, not EventTarget.",
-      "approval_ref": "DRAFT canonical Server compatibility proposal; source f0c06724d9488f4e0d2b9466e442fd138ad8d4da",
-      "regression_ref": "https://github.com/Exohayvan-Systems/service.oneuptime.server/blob/f0c06724d9488f4e0d2b9466e442fd138ad8d4da/app/test/host/startup.test.cjs"
-    },
-    {
-      "tool": "oxlint",
       "rule": "unicorn(no-null)",
       "path": "app/test/public-contracts.test.cjs",
       "line": 9,

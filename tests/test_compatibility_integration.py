@@ -121,7 +121,7 @@ def test_invalid_accepted_subset_cannot_remove_raw_findings(accepted: str) -> No
         report(scan(raw, values))
 
 
-def test_packaged_registry_contains_only_the_seven_authorized_occurrences() -> None:
+def test_packaged_registry_contains_only_the_six_authorized_occurrences() -> None:
     packaged = parse_records(files("ai_code_quality").joinpath(
         "compatibility_registry.json"
     ).read_text(encoding="utf-8"))
@@ -134,9 +134,8 @@ def test_packaged_registry_contains_only_the_seven_authorized_occurrences() -> N
         ("unicorn(no-null)", "app/public-status.cjs", 45, 10, 45, 13),
         ("unicorn(no-null)", "app/test/public-contracts.test.cjs", 9, 37, 9, 40),
         ("unicorn(no-null)", "app/test/public-contracts.test.cjs", 19, 46, 19, 49),
-        ("unicorn(prefer-event-target)", "app/test/host/startup.test.cjs", 25, 18, 25, 29),
     }
-    assert len(packaged) == 7
+    assert len(packaged) == 6
     assert {item.repository for item in packaged} == {REPOSITORY}
     assert {item.tool for item in packaged} == {"oxlint"}
     assert {item.path: item.blob_sha256 for item in packaged} == {
@@ -144,8 +143,6 @@ def test_packaged_registry_contains_only_the_seven_authorized_occurrences() -> N
         "app/public-status.cjs": "f17324b719aef8ee19fec7b159a0b6bfe153545b4cb09c1772281b117999474e",
         "app/test/public-contracts.test.cjs":
             "675ac5a0fbbf6a498bb52e03e1a53ab29744a00f464860b176614b71503e4802",
-        "app/test/host/startup.test.cjs":
-            "a6227dce963f6e84effa8461f003d1a09eb1f6f9498544d6c1548f1b876e1d6b",
     }
 
 

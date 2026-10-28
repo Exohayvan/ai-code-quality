@@ -99,11 +99,13 @@ def test_approved_historical_variants_use_same_registry(tmp_path: Path) -> None:
     assert classify(tmp_path, REPOSITORY, (finding(),), records) == (finding(),)
 
 
-def test_event_emitter_rule_is_exactly_supported(tmp_path: Path) -> None:
+def test_retired_event_emitter_record_and_finding_stay_blocking(tmp_path: Path) -> None:
     source(tmp_path)
     raw = (finding(rule="unicorn(prefer-event-target)"),)
-    records = registry(record(rule="unicorn(prefer-event-target)"))
-    assert classify(tmp_path, REPOSITORY, raw, records) == raw
+    with pytest.raises(ValueError, match="unsupported tool or rule"):
+        registry(record(rule="unicorn(prefer-event-target)"))
+    assert classify(tmp_path, REPOSITORY, raw, registry(record())) == ()
+    assert len(raw) == 1
 
 
 @pytest.mark.parametrize("changes", [

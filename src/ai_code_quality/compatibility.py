@@ -10,7 +10,7 @@ from typing import Any
 
 from ai_code_quality.models import ToolFinding
 
-_RULES = frozenset({"unicorn(no-null)", "unicorn(prefer-event-target)"})
+_RULES = frozenset({"unicorn(no-null)"})
 _REPOSITORY = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 _DIGEST = re.compile(r"[0-9a-f]{64}")
 _FIELDS = frozenset({

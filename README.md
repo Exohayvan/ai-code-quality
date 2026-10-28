@@ -476,9 +476,13 @@ changes.
 ## Exact-occurrence compatibility (draft policy proposal)
 
 The packaged compatibility registry proposes exactly six intentional public-null
-occurrences and one Node EventEmitter fixture occurrence for
+occurrences for
 `Exohayvan-Systems/service.oneuptime.server` at source revision
 `f0c06724d9488f4e0d2b9466e442fd138ad8d4da`. No other Server debt is covered.
+The earlier EventEmitter fixture record is retired alongside the Server shared
+scenario refactor to native `ChildProcess`; that rule is no longer eligible for
+compatibility classification. The [shared runtime][server-shared-runtime]
+records the native fixture. No replacement exception is introduced.
 This draft is not authorization to activate the records in a consuming workflow.
 Canonical policy, tool implementation, records, and regression evidence must first
 be accepted; consumers must pin that accepted immutable action revision.
@@ -491,8 +495,8 @@ use without that identity leaves every finding blocking. The records are loaded
 once before scanning or running a coverage command.
 
 A match requires the exact repository, Oxlint rule, normalized relative path,
-complete source-file SHA-256 and diagnostic span. Only the two explicitly approved
-style rules are eligible. Changed bytes or coordinates remain blocking; unsafe
+complete source-file SHA-256 and diagnostic span. Only `unicorn(no-null)` is
+eligible. Changed bytes or coordinates remain blocking; unsafe
 paths, malformed records and duplicate matches fail closed. Records cannot exempt
 security findings, whole files, glob patterns, or other quality metrics. Raw
 findings remain in `checks.lint.raw_findings`; exact matches and their source hash,
@@ -510,3 +514,5 @@ two-percent ratchet remain unchanged.
 The Server's remaining protected-host maintenance findings and host/runtime
 acceptance are independent requirements. The compatibility records do not permit
 removing host-fixture restrictions, skipping assertions, merging or deploying.
+
+[server-shared-runtime]: https://github.com/Exohayvan-Systems/service.oneuptime.server/blob/5471fba06d3fdae0730d5d13a074e5b89be52c64/app/test/shared/startup-runtime.cjs
