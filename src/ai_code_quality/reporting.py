@@ -386,7 +386,14 @@ def build_reports(
             "semgrep": _finding_check(evaluation.semgrep),
             "yamllint": _finding_check(evaluation.yamllint),
             "markdownlint": _finding_check(evaluation.markdownlint),
-            "typos": _finding_check(evaluation.typos),
+            "typos": {
+                **_finding_check(evaluation.typos),
+                "raw_count": len(scan.typos),
+                "opaque_count": len(scan.typos_opaque),
+                "raw_findings": [_tool_finding_dict(item) for item in scan.typos],
+                "opaque_records": [{"finding": _tool_finding_dict(finding), **asdict(record)}
+                                   for finding, record in scan.typos_opaque],
+            },
             "lint": {
                 **_finding_check(evaluation.lint),
                 "compatibility_records": [
@@ -406,6 +413,17 @@ def build_reports(
                 if evaluation.coverage.quality_passed
                 else "fail",
                 "blocking": evaluation.coverage.blocking,
+                "applicability": evaluation.coverage.applicability,
+                "source_discovery": {
+                    "completed": scan.source_inventory is not None,
+                    "eligible_source_count": (len(scan.source_inventory)
+                                              if scan.source_inventory is not None else None),
+                    "files": scan.source_inventory,
+                },
+                "reason": ("Baseline has no supported source; candidate must meet the absolute "
+                           "profile coverage floor without invented baseline credit."
+                           if evaluation.coverage.applicability == "newly-applicable-absolute"
+                           else "Existing coverage applicability and comparison rules apply."),
                 "observed_percent": evaluation.coverage.observed,
                 "required_percent": evaluation.coverage.required,
                 "target_percent": evaluation.coverage.target,
@@ -450,6 +468,11 @@ def build_reports(
             "yamllint_count": len(baseline.yamllint),
             "markdownlint_count": len(baseline.markdownlint),
             "typos_count": len(baseline.typos),
+            "typos_opaque_count": len(baseline.typos_opaque),
+            "typos_blocking_count": len(baseline.typos) - len(baseline.typos_opaque),
+            "typos_raw_findings": [_tool_finding_dict(item) for item in baseline.typos],
+            "typos_opaque_records": [{"finding": _tool_finding_dict(finding), **asdict(record)}
+                                     for finding, record in baseline.typos_opaque],
             "lint_compatibility_records": [
                 compatibility_record_dict(item) for item in baseline.lint_compatibility_records
             ],
@@ -460,6 +483,12 @@ def build_reports(
             "lint_compatible_findings": [
                 _tool_finding_dict(item) for item in baseline.lint_compatible
             ],
+            "source_discovery": {
+                "completed": baseline.source_inventory is not None,
+                "eligible_source_count": (len(baseline.source_inventory)
+                                          if baseline.source_inventory is not None else None),
+                "files": baseline.source_inventory,
+            },
             "coverage_percent": (
                 baseline.coverage.percentage if baseline.coverage is not None else None
             ),
@@ -512,6 +541,17 @@ def build_reports(
                 "id": "coverage:repository",
                 "check": "coverage",
                 "kind": "coverage-metric",
+                "applicability": evaluation.coverage.applicability,
+                "source_discovery": {
+                    "completed": scan.source_inventory is not None,
+                    "eligible_source_count": (len(scan.source_inventory)
+                                              if scan.source_inventory is not None else None),
+                    "files": scan.source_inventory,
+                },
+                "reason": ("Baseline has no supported source; candidate must meet the absolute "
+                           "profile coverage floor without invented baseline credit."
+                           if evaluation.coverage.applicability == "newly-applicable-absolute"
+                           else "Existing coverage applicability and comparison rules apply."),
                 "observed_percent": evaluation.coverage.observed,
                 "required_percent": evaluation.coverage.required,
                 "target_percent": evaluation.coverage.target,
@@ -730,6 +770,10 @@ def render_summary(reports: Reports) -> str:
         (f"General lint: {checks['lint']['raw_count']} raw, "
          f"{checks['lint']['compatible_count']} approved compatibility, "
          f"{checks['lint']['count']} blocking. Raw findings remain in the full report."),
+        "",
+        (f"Typos: {checks['typos']['raw_count']} raw, "
+         f"{checks['typos']['opaque_count']} opaque revision diagnostics, "
+         f"{checks['typos']['count']} blocking. Raw findings remain in the full report."),
         "",
         "## Preserve",
     ]

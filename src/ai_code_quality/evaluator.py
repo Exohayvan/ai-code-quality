@@ -5,6 +5,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
 
+from ai_code_quality.checks.languages import language_for_path
 from ai_code_quality.models import ComplexityFunction, ScanResult, ToolFinding
 from ai_code_quality.profiles import Profile
 
@@ -101,6 +102,7 @@ class CoverageEvaluation:
     target: float | None
     debt: float
     allowed_debt: float | None
+    applicability: str = "comparable-or-absolute"
 
     @property
     def passed(self) -> bool:
@@ -199,6 +201,21 @@ def _function_metric_findings(
     )
 
 
+def blocking_typos(scan: ScanResult) -> tuple[ToolFinding, ...]:
+    accepted = [finding for finding, _record in scan.typos_opaque]
+    if len(set(accepted)) != len(accepted) or not set(accepted).issubset(scan.typos):
+        raise ValueError("Invalid opaque typo classification")
+    for finding, record in scan.typos_opaque:
+        if (finding.path_context or finding.tool != "typos" or finding.rule != "typo"
+                or finding.path != record.path or finding.line != record.line
+                or finding.end_line != record.line
+                or not (record.start_column <= finding.column
+                        <= finding.end_column <= record.end_column)
+                or record.reason != "opaque-go-pseudo-version-revision"):
+            raise ValueError("Invalid opaque typo evidence")
+    return tuple(finding for finding in scan.typos if finding not in accepted)
+
+
 def blocking_lint(scan: ScanResult) -> tuple[ToolFinding, ...]:
     """Keep raw findings intact; reject invalid compatibility classification."""
     accepted = set(scan.lint_compatible)
@@ -263,6 +280,90 @@ def _evaluate_findings(
         allowed_count=allowed_count,
         findings=current,
     )
+
+
+class CoverageEvidenceError(ValueError):
+    """Coverage applicability or measurement lacks fail-closed evidence."""
+
+
+def _validate_coverage_evidence(scan: ScanResult) -> None:
+    inventory = scan.source_inventory
+    if inventory is None:
+        return
+    if not isinstance(inventory, tuple) or any(
+        not isinstance(item, tuple) or len(item) != 2
+        or not all(isinstance(value, str) and value for value in item)
+        for item in inventory
+    ):
+        raise CoverageEvidenceError("Invalid completed source inventory")
+    if len({path for path, _language in inventory}) != len(inventory):
+        raise CoverageEvidenceError("Duplicate source inventory path")
+    if any(language_for_path(path) != language for path, language in inventory):
+        raise CoverageEvidenceError("Source inventory language mismatch")
+    languages = tuple(sorted({language for _path, language in inventory}))
+    if not inventory:
+        if scan.coverage is not None:
+            raise CoverageEvidenceError("No-source discovery conflicts with measured coverage")
+        return
+    if scan.coverage is None:
+        raise CoverageEvidenceError("Supported source requires coverage evidence")
+    if not scan.coverage.reports and (
+        scan.coverage.files or scan.coverage.total_units or scan.coverage.covered_units
+        or scan.coverage.percentage
+    ):
+        raise CoverageEvidenceError("Unreported coverage cannot claim measured credit")
+    if scan.coverage.detected_languages != languages:
+        raise CoverageEvidenceError("Coverage languages do not match completed source discovery")
+
+
+def _validate_new_measurement(scan: ScanResult) -> None:
+    coverage = scan.coverage
+    if coverage is None or not coverage.reports or not coverage.files or not scan.source_inventory:
+        raise CoverageEvidenceError("Newly applicable coverage requires valid measured reports")
+    inventory = dict(scan.source_inventory)
+    if any(inventory.get(item.path) != item.language for item in coverage.files):
+        raise CoverageEvidenceError(
+            "Measured coverage does not match discovered source paths/languages"
+        )
+    if {item.language for item in coverage.files} != set(inventory.values()):
+        raise CoverageEvidenceError("Measured coverage omits a discovered language")
+    if set(coverage.files) != {item for report in coverage.reports for item in report.files}:
+        raise CoverageEvidenceError("Coverage aggregate and report evidence disagree")
+    covered = sum(item.covered_units for item in coverage.files)
+    total = sum(item.total_units for item in coverage.files)
+    expected = covered / total * 100 if total else 0
+    if (coverage.covered_units != covered or coverage.total_units != total
+            or not math.isfinite(coverage.percentage)
+            or not math.isclose(coverage.percentage, expected, abs_tol=1e-9)):
+        raise CoverageEvidenceError("Coverage aggregate does not match measured counts")
+
+
+def _coverage_applicability(current: ScanResult, baseline: ScanResult | None) -> str:
+    _validate_coverage_evidence(current)
+    if baseline is None:
+        if current.source_inventory == ():
+            return "not-applicable-no-supported-source"
+        return "absolute"
+    _validate_coverage_evidence(baseline)
+    if (baseline.source_inventory and baseline.coverage is not None
+            and not baseline.coverage.reports):
+        raise CoverageEvidenceError("Supported-source baseline is missing measured coverage")
+    if (current.source_inventory is None) != (baseline.source_inventory is None):
+        raise CoverageEvidenceError("Candidate source discovery evidence is missing")
+    if current.source_inventory == () and baseline.source_inventory:
+        raise CoverageEvidenceError("Removing supported source requires explicit coverage review")
+    if current.coverage is not None and baseline.coverage is None:
+        if baseline.source_inventory != ():
+            raise CoverageEvidenceError("Coverage baseline applicability is unknown or missing")
+        if (not current.coverage.reports or not current.coverage.files):
+            raise CoverageEvidenceError("Newly applicable coverage requires valid measured reports")
+        if current.source_inventory is None or not current.source_inventory:
+            raise CoverageEvidenceError(
+                "Newly applicable coverage requires completed source discovery"
+            )
+        _validate_new_measurement(current)
+        return "newly-applicable-absolute"
+    return "comparable"
 
 
 def evaluate(
@@ -358,8 +459,8 @@ def evaluate(
         enforcement=enforcement,
     )
     typos_evaluation = _evaluate_findings(
-        current=current.typos,
-        baseline=baseline.typos if baseline is not None else None,
+        current=blocking_typos(current),
+        baseline=blocking_typos(baseline) if baseline is not None else None,
         enabled=profile.typos_enabled,
         enforcement=enforcement,
     )
@@ -373,14 +474,19 @@ def evaluate(
     )
 
     coverage_target = profile.minimum_coverage_percent
+    applicability = (
+        _coverage_applicability(current, baseline)
+        if coverage_target is not None else "disabled"
+    )
     if coverage_target is None or current.coverage is None:
         coverage_evaluation = CoverageEvaluation(
-            True, False, True, None, None, coverage_target, 0.0, None
+            True, False, True, None, None, coverage_target, 0.0, None, applicability
         )
     else:
         observed_coverage = current.coverage.percentage
         coverage_debt = max(0.0, coverage_target - observed_coverage)
-        if enforcement.kind in {EnforcementKind.ABSOLUTE, EnforcementKind.REPORT_ONLY}:
+        if (enforcement.kind in {EnforcementKind.ABSOLUTE, EnforcementKind.REPORT_ONLY}
+                or applicability == "newly-applicable-absolute"):
             allowed_coverage_debt = 0.0
         else:
             if baseline is None or baseline.coverage is None:
@@ -404,6 +510,7 @@ def evaluate(
             target=coverage_target,
             debt=coverage_debt,
             allowed_debt=allowed_coverage_debt,
+            applicability=applicability,
         )
 
     return QualityEvaluation(

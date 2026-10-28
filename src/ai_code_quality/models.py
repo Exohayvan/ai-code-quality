@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from ai_code_quality.checks.opaque_go import OpaqueGoRevision
     from ai_code_quality.compatibility import CompatibilityRecord
 
 
@@ -95,6 +96,9 @@ class ScanResult:
     markdownlint: tuple[ToolFinding, ...] = ()
     typos: tuple[ToolFinding, ...] = ()
     lint: tuple[ToolFinding, ...] = ()
+    typos_opaque: tuple[tuple[ToolFinding, OpaqueGoRevision], ...] = ()
     coverage: CoverageResult | None = None
+    # None means unknown; an empty tuple means completed discovery found no source.
+    source_inventory: tuple[tuple[str, str], ...] | None = None
     lint_compatible: tuple[ToolFinding, ...] = ()
     lint_compatibility_records: tuple[CompatibilityRecord, ...] = ()

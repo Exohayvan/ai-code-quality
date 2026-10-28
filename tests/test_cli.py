@@ -45,7 +45,8 @@ def test_scan_repository_only_runs_tools_enabled_by_profile(tmp_path: Path, monk
     monkeypatch.setattr(
         cli, "run_markdownlint", lambda path, policy: calls.append("markdownlint") or ()
     )
-    monkeypatch.setattr(cli, "detect_languages", lambda path: ("python", "typescript"))
+    monkeypatch.setattr(cli, "source_files", lambda path: (("a.py", "python"),
+                                                         ("b.ts", "typescript")))
     monkeypatch.setattr(
         cli,
         "run_lint",
@@ -128,7 +129,11 @@ def test_zero_improvement_compares_against_explicit_baseline(tmp_path: Path) -> 
     git(repository, "config", "user.name", "Test User")
     git(repository, "config", "user.email", "test@example.invalid")
     (repository / "logic.py").write_text("def decide(a):\n    return 1 if a else 0\n")
-    git(repository, "add", "logic.py")
+    # Synthetic report fixture keeps this test focused on complexity/scope comparison.
+    (repository / "coverage.json").write_text(json.dumps({"files": {
+        "logic.py": {"summary": {"covered_lines": 0, "num_statements": 1}}
+    }}))
+    git(repository, "add", "logic.py", "coverage.json")
     git(repository, "commit", "-m", "baseline")
     baseline = git(repository, "rev-parse", "HEAD")
     (repository / "logic.py").write_text(
@@ -177,6 +182,10 @@ def test_baseline_comparison_scans_the_same_subdirectory(tmp_path: Path) -> None
         "    return a or b or c or d or e or f or g or h or i or j or k\n"
     )
     (service / "logic.py").write_text("def decide(a):\n    return 1 if a else 0\n")
+    # Synthetic report fixture keeps this test focused on complexity/scope comparison.
+    (service / "coverage.json").write_text(json.dumps({"files": {
+        "logic.py": {"summary": {"covered_lines": 0, "num_statements": 1}}
+    }}))
     git(repository, "add", ".")
     git(repository, "commit", "-m", "baseline")
     baseline = git(repository, "rev-parse", "HEAD")
