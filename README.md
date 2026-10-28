@@ -516,3 +516,24 @@ acceptance are independent requirements. The compatibility records do not permit
 removing host-fixture restrictions, skipping assertions, merging or deploying.
 
 [server-shared-runtime]: https://github.com/Exohayvan-Systems/service.oneuptime.server/blob/5471fba06d3fdae0730d5d13a074e5b89be52c64/app/test/shared/startup-runtime.cjs
+
+## Newly measurable coverage and opaque dependency revisions
+
+A completed source inventory can establish that an old baseline has no supported
+coverage source. Newly measurable candidate coverage then must meet the absolute
+profile floor; all other comparable metrics retain their improvement ratchet.
+This is not report-only bootstrap or invented baseline coverage. Unknown inventory,
+missing applicable coverage, source removal, and inconsistent report paths or
+languages fail closed. Reports retain discovery evidence and applicability.
+
+Typos within an opaque Go pseudo-version revision can be lexically classified
+only in validated dependency records in complete `go.mod` or `go.sum` patch hunks.
+`checks.typos` retains raw diagnostics, source-hashed classification records and
+separate raw, opaque and blocking counts. Candidate and baseline use the same
+parser; real prose, malformed patches and unverified spans remain blocking.
+This does not establish dependency authenticity or security.
+
+Artifact-specific vulnerability applicability remains the consuming service's
+separate security gate. This tool does not approve GO-2026-5932 or change the six
+Server compatibility records. Draft policy/tool changes must be accepted before
+consumers adopt the new immutable revision.

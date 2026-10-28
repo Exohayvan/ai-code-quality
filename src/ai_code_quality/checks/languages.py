@@ -46,11 +46,15 @@ def language_for_path(path: str | Path) -> str | None:
     return _EXTENSION_LANGUAGES.get(suffix)
 
 
+def _discovery_error(error: OSError) -> None:
+    raise RuntimeError("Supported-source discovery failed") from error
+
+
 def source_files(repository: Path) -> tuple[tuple[str, str], ...]:
     root = repository.resolve()
     found: list[tuple[str, str]] = []
     excluded = set(DEFAULT_EXCLUDED_DIRECTORIES)
-    for directory, names, files in os.walk(root, followlinks=False):
+    for directory, names, files in os.walk(root, followlinks=False, onerror=_discovery_error):
         names[:] = sorted(
             name
             for name in names

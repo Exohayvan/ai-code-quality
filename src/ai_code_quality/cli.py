@@ -17,16 +17,18 @@ from ai_code_quality.baseline import (
 )
 from ai_code_quality.checks.coverage import run_coverage
 from ai_code_quality.checks.jscpd import run_jscpd
-from ai_code_quality.checks.languages import detect_languages
+from ai_code_quality.checks.languages import source_files
 from ai_code_quality.checks.lint import run_lint
 from ai_code_quality.checks.lizard import run_lizard
 from ai_code_quality.checks.markdownlint import run_markdownlint
+from ai_code_quality.checks.opaque_go import classify as classify_opaque_go
 from ai_code_quality.checks.semgrep import run_semgrep
 from ai_code_quality.checks.typos import run_typos
 from ai_code_quality.checks.yamllint import run_yamllint
 from ai_code_quality.compatibility import classify_with_records, parse_records
 from ai_code_quality.evaluator import (
     CompatibilityComparisonError,
+    CoverageEvidenceError,
     EnforcementKind,
     evaluate,
     parse_enforcement,
@@ -47,7 +49,8 @@ def scan_repository(
     profile: Profile,
     coverage_command: tuple[str, ...] | None = None,
 ) -> ScanResult:
-    languages = detect_languages(repository)
+    inventory = source_files(repository)
+    languages = tuple(sorted({language for _path, language in inventory}))
     coverage_enabled = profile.minimum_coverage_percent is not None and bool(languages)
     with ThreadPoolExecutor(max_workers=8, thread_name_prefix="quality-check") as executor:
         duplication_future = executor.submit(run_jscpd, repository)
@@ -95,8 +98,11 @@ def scan_repository(
         yamllint=yamllint,
         markdownlint=markdownlint,
         typos=typos,
+        typos_opaque=tuple((finding, record) for finding in typos
+                           if (record := classify_opaque_go(finding, repository)) is not None),
         lint=lint,
         coverage=coverage,
+        source_inventory=inventory,
     )
 
 
@@ -226,7 +232,7 @@ def run(arguments: list[str] | None = None) -> int:
             profile=profile,
             enforcement=enforcement,
         )
-    except CompatibilityComparisonError as exc:
+    except (CompatibilityComparisonError, CoverageEvidenceError) as exc:
         output = Path(options.output)
         if not output.is_absolute():
             output = repository / output
@@ -234,6 +240,15 @@ def run(arguments: list[str] | None = None) -> int:
         evidence = {
             "verdict": "error",
             "error": str(exc),
+            "baseline_sha": baseline_sha or None,
+            "current_source_inventory": current_scan.source_inventory,
+            "baseline_source_inventory": (baseline_scan.source_inventory
+                                          if baseline_scan is not None else None),
+            "current_coverage": (asdict(current_scan.coverage)
+                                 if current_scan.coverage is not None else None),
+            "baseline_coverage": (asdict(baseline_scan.coverage)
+                                  if baseline_scan is not None
+                                  and baseline_scan.coverage is not None else None),
             "current_raw_lint": [asdict(item) for item in current_scan.lint],
             "baseline_raw_lint": [asdict(item) for item in baseline_scan.lint]
             if baseline_scan is not None else [],
@@ -261,6 +276,8 @@ def run(arguments: list[str] | None = None) -> int:
     output = Path(options.output)
     if not output.is_absolute():
         output = repository / output
+    if baseline_sha:
+        reports.full["baseline_sha"] = baseline_sha
     paths = write_reports(reports, output)
     summary = render_summary(reports)
     print(summary, end="")
