@@ -199,6 +199,34 @@ def _function_metric_findings(
     )
 
 
+def blocking_lint(scan: ScanResult) -> tuple[ToolFinding, ...]:
+    """Keep raw findings intact; reject invalid compatibility classification."""
+    accepted = set(scan.lint_compatible)
+    if len(accepted) != len(scan.lint_compatible) or not accepted.issubset(scan.lint):
+        raise ValueError("Invalid compatibility classification")
+    return tuple(finding for finding in scan.lint if finding not in accepted)
+
+
+def _compatibility_signature(scan: ScanResult) -> set[tuple[str | int, ...]]:
+    return {
+        (item.tool, item.rule, item.path, item.line, item.column,
+         item.end_line, item.end_column)
+        for item in scan.lint_compatible
+    }
+
+
+class CompatibilityComparisonError(ValueError):
+    """A ratchet has no approved symmetric compatibility correspondence."""
+
+
+def _validate_compatibility_comparison(current: ScanResult, baseline: ScanResult) -> None:
+    if _compatibility_signature(current) != _compatibility_signature(baseline):
+        raise CompatibilityComparisonError(
+            "Compatibility classifications differ between candidate and baseline; "
+            "reviewed historical correspondence is required before ratcheting"
+        )
+
+
 def _evaluate_findings(
     *,
     current: tuple[ToolFinding, ...],
@@ -335,9 +363,11 @@ def evaluate(
         enabled=profile.typos_enabled,
         enforcement=enforcement,
     )
+    if enforcement.kind is EnforcementKind.IMPROVEMENT and baseline is not None:
+        _validate_compatibility_comparison(current, baseline)
     lint_evaluation = _evaluate_findings(
-        current=current.lint,
-        baseline=baseline.lint if baseline is not None else None,
+        current=blocking_lint(current),
+        baseline=blocking_lint(baseline) if baseline is not None else None,
         enabled=profile.lint_policy is not None,
         enforcement=enforcement,
     )

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
@@ -170,6 +170,14 @@ def _function_metric_repair_item(
         "observed": observed,
         "excess_debt": observed - maximum,
     }
+
+
+def compatibility_record_dict(record: Any) -> dict[str, object]:
+    evidence = asdict(record)
+    identity = hashlib.sha256(
+        json.dumps(evidence, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    return {"record_id": identity, **evidence}
 
 
 def _tool_finding_dict(finding: ToolFinding) -> dict[str, object]:
@@ -379,7 +387,18 @@ def build_reports(
             "yamllint": _finding_check(evaluation.yamllint),
             "markdownlint": _finding_check(evaluation.markdownlint),
             "typos": _finding_check(evaluation.typos),
-            "lint": _finding_check(evaluation.lint),
+            "lint": {
+                **_finding_check(evaluation.lint),
+                "compatibility_records": [
+                    compatibility_record_dict(item) for item in scan.lint_compatibility_records
+                ],
+                "raw_count": len(scan.lint),
+                "compatible_count": len(scan.lint_compatible),
+                "raw_findings": [_tool_finding_dict(item) for item in scan.lint],
+                "compatible_findings": [
+                    _tool_finding_dict(item) for item in scan.lint_compatible
+                ],
+            },
             "coverage": {
                 "status": "skipped"
                 if evaluation.coverage.skipped
@@ -431,7 +450,16 @@ def build_reports(
             "yamllint_count": len(baseline.yamllint),
             "markdownlint_count": len(baseline.markdownlint),
             "typos_count": len(baseline.typos),
+            "lint_compatibility_records": [
+                compatibility_record_dict(item) for item in baseline.lint_compatibility_records
+            ],
             "lint_count": len(baseline.lint),
+            "lint_compatible_count": len(baseline.lint_compatible),
+            "lint_blocking_count": len(baseline.lint) - len(baseline.lint_compatible),
+            "lint_raw_findings": [_tool_finding_dict(item) for item in baseline.lint],
+            "lint_compatible_findings": [
+                _tool_finding_dict(item) for item in baseline.lint_compatible
+            ],
             "coverage_percent": (
                 baseline.coverage.percentage if baseline.coverage is not None else None
             ),
@@ -698,6 +726,10 @@ def render_summary(reports: Reports) -> str:
             f"| Test coverage | {coverage_result} | {coverage_required} | "
             f"{str(coverage['status']).upper()} |"
         ),
+        "",
+        (f"General lint: {checks['lint']['raw_count']} raw, "
+         f"{checks['lint']['compatible_count']} approved compatibility, "
+         f"{checks['lint']['count']} blocking. Raw findings remain in the full report."),
         "",
         "## Preserve",
     ]

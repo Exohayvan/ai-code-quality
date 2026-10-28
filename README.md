@@ -176,7 +176,9 @@ Give the action step an `id` to consume outputs:
 | `yamllint-findings` | Current yamllint finding count. |
 | `markdownlint-findings` | Current markdownlint finding count. |
 | `typo-findings` | Current typo finding count. |
-| `lint-findings` | Current combined general lint finding count. |
+| `lint-findings` | Current blocking general lint finding count after exact compatibility classification. |
+| `lint-raw-findings` | Complete raw general lint count, retained in the full report. |
+| `lint-compatible-findings` | Exact action-owned compatible occurrences, retained with approval evidence. |
 | `coverage-percent` | Current aggregate test coverage percentage, or empty when coverage is disabled or not applicable. |
 | `report-path` | Absolute path to the complete JSON report. |
 | `fix-context-path` | Absolute path to the bounded AI repair context. |
@@ -470,3 +472,41 @@ changes.
 ## License
 
 [MIT](LICENSE)
+
+## Exact-occurrence compatibility (draft policy proposal)
+
+The packaged compatibility registry proposes exactly six intentional public-null
+occurrences and one Node EventEmitter fixture occurrence for
+`Exohayvan-Systems/service.oneuptime.server` at source revision
+`f0c06724d9488f4e0d2b9466e442fd138ad8d4da`. No other Server debt is covered.
+This draft is not authorization to activate the records in a consuming workflow.
+Canonical policy, tool implementation, records, and regression evidence must first
+be accepted; consumers must pin that accepted immutable action revision.
+
+The registry is installed with the action, not read from the scanned repository.
+The action invokes Python in isolated mode to prevent the candidate working
+directory or `PYTHONPATH` from shadowing the installed package and registry. The
+repository identity is captured from the workflow's `GITHUB_REPOSITORY`; local CLI
+use without that identity leaves every finding blocking. The records are loaded
+once before scanning or running a coverage command.
+
+A match requires the exact repository, Oxlint rule, normalized relative path,
+complete source-file SHA-256 and diagnostic span. Only the two explicitly approved
+style rules are eligible. Changed bytes or coordinates remain blocking; unsafe
+paths, malformed records and duplicate matches fail closed. Records cannot exempt
+security findings, whole files, glob patterns, or other quality metrics. Raw
+findings remain in `checks.lint.raw_findings`; exact matches and their source hash,
+rationale, approval reference and record identity are reported separately.
+
+Candidate and baseline use the same immutable registry and classifier. Ratcheting
+fails closed if their accepted occurrence signatures differ. This intentionally
+rejects filtered-candidate/raw-baseline comparisons and removed/new classifications
+that would invent improvement credit. Historical fingerprints or a broader
+correspondence mechanism require separate review, not automatic baseline credit.
+Comparison errors still write raw candidate/baseline evidence to `report.json`.
+The strict profile, full scan scope, measured coverage, security gates and normal
+two-percent ratchet remain unchanged.
+
+The Server's remaining protected-host maintenance findings and host/runtime
+acceptance are independent requirements. The compatibility records do not permit
+removing host-fixture restrictions, skipping assertions, merging or deploying.

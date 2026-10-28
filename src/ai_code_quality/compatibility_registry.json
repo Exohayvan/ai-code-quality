@@ -1,0 +1,103 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "tool": "oxlint",
+      "rule": "unicorn(no-null)",
+      "path": "app/declaration.cjs",
+      "line": 22,
+      "column": 41,
+      "end_line": 22,
+      "end_column": 44,
+      "repository": "Exohayvan-Systems/service.oneuptime.server",
+      "blob_sha256": "ebdd03c2682ab555e1b3bc7e64cf14d8acfbe5aa41741dd5c62af3f319d79aba",
+      "rationale": "Preserve exported null return contract and its strict regression assertions.",
+      "approval_ref": "DRAFT canonical Server compatibility proposal; source f0c06724d9488f4e0d2b9466e442fd138ad8d4da",
+      "regression_ref": "https://github.com/Exohayvan-Systems/service.oneuptime.server/blob/f0c06724d9488f4e0d2b9466e442fd138ad8d4da/app/test/public-contracts.test.cjs"
+    },
+    {
+      "tool": "oxlint",
+      "rule": "unicorn(no-null)",
+      "path": "app/public-status.cjs",
+      "line": 31,
+      "column": 51,
+      "end_line": 31,
+      "end_column": 54,
+      "repository": "Exohayvan-Systems/service.oneuptime.server",
+      "blob_sha256": "f17324b719aef8ee19fec7b159a0b6bfe153545b4cb09c1772281b117999474e",
+      "rationale": "Preserve exported null return contract and its strict regression assertions.",
+      "approval_ref": "DRAFT canonical Server compatibility proposal; source f0c06724d9488f4e0d2b9466e442fd138ad8d4da",
+      "regression_ref": "https://github.com/Exohayvan-Systems/service.oneuptime.server/blob/f0c06724d9488f4e0d2b9466e442fd138ad8d4da/app/test/public-contracts.test.cjs"
+    },
+    {
+      "tool": "oxlint",
+      "rule": "unicorn(no-null)",
+      "path": "app/public-status.cjs",
+      "line": 38,
+      "column": 66,
+      "end_line": 38,
+      "end_column": 69,
+      "repository": "Exohayvan-Systems/service.oneuptime.server",
+      "blob_sha256": "f17324b719aef8ee19fec7b159a0b6bfe153545b4cb09c1772281b117999474e",
+      "rationale": "Preserve exported null return contract and its strict regression assertions.",
+      "approval_ref": "DRAFT canonical Server compatibility proposal; source f0c06724d9488f4e0d2b9466e442fd138ad8d4da",
+      "regression_ref": "https://github.com/Exohayvan-Systems/service.oneuptime.server/blob/f0c06724d9488f4e0d2b9466e442fd138ad8d4da/app/test/public-contracts.test.cjs"
+    },
+    {
+      "tool": "oxlint",
+      "rule": "unicorn(no-null)",
+      "path": "app/public-status.cjs",
+      "line": 45,
+      "column": 10,
+      "end_line": 45,
+      "end_column": 13,
+      "repository": "Exohayvan-Systems/service.oneuptime.server",
+      "blob_sha256": "f17324b719aef8ee19fec7b159a0b6bfe153545b4cb09c1772281b117999474e",
+      "rationale": "Preserve exported null return contract and its strict regression assertions.",
+      "approval_ref": "DRAFT canonical Server compatibility proposal; source f0c06724d9488f4e0d2b9466e442fd138ad8d4da",
+      "regression_ref": "https://github.com/Exohayvan-Systems/service.oneuptime.server/blob/f0c06724d9488f4e0d2b9466e442fd138ad8d4da/app/test/public-contracts.test.cjs"
+    },
+    {
+      "tool": "oxlint",
+      "rule": "unicorn(prefer-event-target)",
+      "path": "app/test/host/startup.test.cjs",
+      "line": 25,
+      "column": 18,
+      "end_line": 25,
+      "end_column": 29,
+      "repository": "Exohayvan-Systems/service.oneuptime.server",
+      "blob_sha256": "a6227dce963f6e84effa8461f003d1a09eb1f6f9498544d6c1548f1b876e1d6b",
+      "rationale": "Model Node ChildProcess on/once/emit semantics with EventEmitter, not EventTarget.",
+      "approval_ref": "DRAFT canonical Server compatibility proposal; source f0c06724d9488f4e0d2b9466e442fd138ad8d4da",
+      "regression_ref": "https://github.com/Exohayvan-Systems/service.oneuptime.server/blob/f0c06724d9488f4e0d2b9466e442fd138ad8d4da/app/test/host/startup.test.cjs"
+    },
+    {
+      "tool": "oxlint",
+      "rule": "unicorn(no-null)",
+      "path": "app/test/public-contracts.test.cjs",
+      "line": 9,
+      "column": 37,
+      "end_line": 9,
+      "end_column": 40,
+      "repository": "Exohayvan-Systems/service.oneuptime.server",
+      "blob_sha256": "675ac5a0fbbf6a498bb52e03e1a53ab29744a00f464860b176614b71503e4802",
+      "rationale": "Preserve exported null return contract and its strict regression assertions.",
+      "approval_ref": "DRAFT canonical Server compatibility proposal; source f0c06724d9488f4e0d2b9466e442fd138ad8d4da",
+      "regression_ref": "https://github.com/Exohayvan-Systems/service.oneuptime.server/blob/f0c06724d9488f4e0d2b9466e442fd138ad8d4da/app/test/public-contracts.test.cjs"
+    },
+    {
+      "tool": "oxlint",
+      "rule": "unicorn(no-null)",
+      "path": "app/test/public-contracts.test.cjs",
+      "line": 19,
+      "column": 46,
+      "end_line": 19,
+      "end_column": 49,
+      "repository": "Exohayvan-Systems/service.oneuptime.server",
+      "blob_sha256": "675ac5a0fbbf6a498bb52e03e1a53ab29744a00f464860b176614b71503e4802",
+      "rationale": "Preserve exported null return contract and its strict regression assertions.",
+      "approval_ref": "DRAFT canonical Server compatibility proposal; source f0c06724d9488f4e0d2b9466e442fd138ad8d4da",
+      "regression_ref": "https://github.com/Exohayvan-Systems/service.oneuptime.server/blob/f0c06724d9488f4e0d2b9466e442fd138ad8d4da/app/test/public-contracts.test.cjs"
+    }
+  ]
+}

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shlex
 import sys
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import asdict, replace
+from importlib.resources import files
 from pathlib import Path
 
 from ai_code_quality.baseline import (
@@ -21,11 +24,18 @@ from ai_code_quality.checks.markdownlint import run_markdownlint
 from ai_code_quality.checks.semgrep import run_semgrep
 from ai_code_quality.checks.typos import run_typos
 from ai_code_quality.checks.yamllint import run_yamllint
-from ai_code_quality.evaluator import EnforcementKind, evaluate, parse_enforcement
+from ai_code_quality.compatibility import classify_with_records, parse_records
+from ai_code_quality.evaluator import (
+    CompatibilityComparisonError,
+    EnforcementKind,
+    evaluate,
+    parse_enforcement,
+)
 from ai_code_quality.models import DuplicationResult, ScanResult
 from ai_code_quality.profiles import Profile, get_profile
 from ai_code_quality.reporting import (
     build_reports,
+    compatibility_record_dict,
     render_annotations,
     render_summary,
     write_reports,
@@ -164,9 +174,24 @@ def run(arguments: list[str] | None = None) -> int:
     coverage_command = tuple(shlex.split(options.coverage_command)) or None
     baseline_sha = ""
     baseline_scan: ScanResult | None = None
+    # Action-owned packaged records, never candidate-controlled configuration.
+    records = parse_records(files("ai_code_quality").joinpath(
+        "compatibility_registry.json"
+    ).read_text(encoding="utf-8"))
+    repository_identity = os.environ.get("GITHUB_REPOSITORY", "")
+
+    def classify_scan(root: Path, scan: ScanResult) -> ScanResult:
+        if not repository_identity:
+            return scan
+        accepted, matched_records = classify_with_records(
+            root, repository_identity, scan.lint, records
+        )
+        return replace(scan, lint_compatible=accepted, lint_compatibility_records=matched_records)
 
     if profile.enabled:
-        current_scan = scan_repository(repository, profile, coverage_command)
+        current_scan = classify_scan(
+            repository, scan_repository(repository, profile, coverage_command)
+        )
         if enforcement.kind is EnforcementKind.IMPROVEMENT:
             git_root, relative_target = repository_root_and_relative(repository)
             baseline_sha = resolve_baseline(
@@ -177,7 +202,9 @@ def run(arguments: list[str] | None = None) -> int:
                 baseline_target = worktree / relative_target
                 if not baseline_target.is_dir():
                     raise ValueError("The analyzed path does not exist at the comparison baseline")
-                baseline_scan = scan_repository(baseline_target, profile, coverage_command)
+                baseline_scan = classify_scan(
+                    baseline_target, scan_repository(baseline_target, profile, coverage_command)
+                )
             if (
                 coverage_command is None
                 and current_scan.coverage is not None
@@ -192,12 +219,37 @@ def run(arguments: list[str] | None = None) -> int:
     else:
         current_scan = _empty_scan()
 
-    evaluation = evaluate(
-        current=current_scan,
-        baseline=baseline_scan,
-        profile=profile,
-        enforcement=enforcement,
-    )
+    try:
+        evaluation = evaluate(
+            current=current_scan,
+            baseline=baseline_scan,
+            profile=profile,
+            enforcement=enforcement,
+        )
+    except CompatibilityComparisonError as exc:
+        output = Path(options.output)
+        if not output.is_absolute():
+            output = repository / output
+        output.mkdir(parents=True, exist_ok=True)
+        evidence = {
+            "verdict": "error",
+            "error": str(exc),
+            "current_raw_lint": [asdict(item) for item in current_scan.lint],
+            "baseline_raw_lint": [asdict(item) for item in baseline_scan.lint]
+            if baseline_scan is not None else [],
+            "current_compatible_lint": [asdict(item) for item in current_scan.lint_compatible],
+            "current_compatibility_records": [
+                compatibility_record_dict(item) for item in current_scan.lint_compatibility_records
+            ],
+            "baseline_compatibility_records": [
+                compatibility_record_dict(item) for item in baseline_scan.lint_compatibility_records
+            ] if baseline_scan is not None else [],
+            "baseline_compatible_lint": [asdict(item) for item in baseline_scan.lint_compatible]
+            if baseline_scan is not None else [],
+        }
+        (output / "report.json").write_text(json.dumps(evidence, indent=2) + "\n")
+        raise
+
     reports = build_reports(
         scan=current_scan,
         baseline=baseline_scan,
@@ -231,6 +283,8 @@ def run(arguments: list[str] | None = None) -> int:
             "markdownlint-findings": evaluation.markdownlint.count,
             "typo-findings": evaluation.typos.count,
             "lint-findings": evaluation.lint.count,
+            "lint-raw-findings": len(current_scan.lint),
+            "lint-compatible-findings": len(current_scan.lint_compatible),
             "coverage-percent": (
                 current_scan.coverage.percentage if current_scan.coverage is not None else ""
             ),
