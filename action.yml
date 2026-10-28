@@ -79,6 +79,12 @@ outputs:
   fix-context-path:
     description: Absolute path to the bounded AI repair context
     value: ${{ steps.quality.outputs.fix-context-path }}
+  lint-raw-findings:
+    description: Complete raw general lint finding count before compatibility classification
+    value: ${{ steps.quality.outputs.lint-raw-findings }}
+  lint-compatible-findings:
+    description: Exact action-owned compatibility matches, also retained in the full report
+    value: ${{ steps.quality.outputs.lint-compatible-findings }}
   baseline-sha:
     description: Resolved comparison baseline commit, when used
     value: ${{ steps.quality.outputs.baseline-sha }}
@@ -104,7 +110,7 @@ runs:
           exit 2
         fi
         quality_python="$(
-          "$quality_python" -c 'import sys; print(getattr(sys, "_base_executable", sys.executable))'
+          "$quality_python" -I -c 'import sys; print(getattr(sys, "_base_executable", sys.executable))'
         )"
         quality_environment="$RUNNER_TEMP/ai-code-quality-v1-python"
         quality_node_environment="$RUNNER_TEMP/ai-code-quality-v1-node"
@@ -112,7 +118,7 @@ runs:
         rm -rf "$quality_environment"
         rm -rf "$quality_node_environment"
         rm -rf "$quality_binary_directory"
-        "$quality_python" -m venv "$quality_environment"
+        "$quality_python" -I -m venv "$quality_environment"
         if [[ -x "$quality_environment/bin/python" ]]; then
           quality_python="$quality_environment/bin/python"
         elif [[ -x "$quality_environment/Scripts/python.exe" ]]; then
@@ -121,14 +127,14 @@ runs:
           echo "Unable to locate the isolated Python interpreter" >&2
           exit 2
         fi
-        "$quality_python" -m pip install \
+        "$quality_python" -I -m pip install \
           --disable-pip-version-check \
           --no-input \
           "lizard==1.23.0" \
           "ruff==0.16.1" \
           "semgrep==1.172.0" \
           "yamllint==1.38.0"
-        "$quality_python" -m pip install \
+        "$quality_python" -I -m pip install \
           --disable-pip-version-check \
           --no-input \
           --force-reinstall \
@@ -151,7 +157,7 @@ runs:
           --no-save \
           "markdownlint-cli@0.49.1" \
           "oxlint@1.77.0"
-        "$quality_python" -m ai_code_quality.install_typos "$quality_binary_directory"
+        "$quality_python" -I -m ai_code_quality.install_typos "$quality_binary_directory"
         printf 'AI_CODE_QUALITY_PYTHON=%s\n' "$quality_python" >> "$GITHUB_ENV"
         printf '%s\n' \
           "$(dirname "$quality_python")" \
@@ -184,4 +190,4 @@ runs:
         if [[ -n "$INPUT_COVERAGE_COMMAND" ]]; then
           arguments+=(--coverage-command "$INPUT_COVERAGE_COMMAND")
         fi
-        "$AI_CODE_QUALITY_PYTHON" -m ai_code_quality "${arguments[@]}"
+        "$AI_CODE_QUALITY_PYTHON" -I -m ai_code_quality "${arguments[@]}"

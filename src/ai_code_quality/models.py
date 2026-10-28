@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ai_code_quality.compatibility import CompatibilityRecord
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,3 +96,5 @@ class ScanResult:
     typos: tuple[ToolFinding, ...] = ()
     lint: tuple[ToolFinding, ...] = ()
     coverage: CoverageResult | None = None
+    lint_compatible: tuple[ToolFinding, ...] = ()
+    lint_compatibility_records: tuple[CompatibilityRecord, ...] = ()

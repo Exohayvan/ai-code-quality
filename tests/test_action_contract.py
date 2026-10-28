@@ -37,6 +37,8 @@ def test_action_metadata_exposes_confirmed_public_interface() -> None:
         "markdownlint-findings",
         "typo-findings",
         "lint-findings",
+        "lint-raw-findings",
+        "lint-compatible-findings",
         "coverage-percent",
         "report-path",
         "fix-context-path",
